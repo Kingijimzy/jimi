@@ -1,6 +1,8 @@
 package com.jimi.app.agent
 
 import android.content.Context
+import com.jimi.app.memory.MemoryStore
+import com.jimi.app.skills.SkillRegistry
 import com.jimi.app.tools.PhoneTools
 import kotlinx.coroutines.*
 import org.json.JSONArray
@@ -8,7 +10,7 @@ import org.json.JSONObject
 
 /**
  * The brain of Jimi.
- * Receives user goals, reasons, calls tools, and reports progress.
+ * Local-first → Free APIs → Paid.
  */
 class Agent(
     private val context: Context,
@@ -17,6 +19,7 @@ class Agent(
 ) {
     private val router = ModelRouter(context)
     private val phoneTools = PhoneTools(context)
+    private val memory = MemoryStore(context)
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     @Volatile
@@ -33,39 +36,37 @@ class Agent(
                 OrbStateManager.thinking()
                 onStatus("Thinking...")
 
-                // 1. Very simple local classification first (will expand)
                 val lower = userGoal.lowercase().trim()
-                if (handleLocal(lower)) {
+
+                // 1. Instant local handling (no API cost)
+                if (handleLocal(lower, userGoal)) {
                     OrbStateManager.idle()
+                    onStatus("Ready")
                     return@launch
                 }
 
-                // 2. Full agent loop (hybrid)
+                // 2. Skill trigger check
+                val skill = SkillRegistry.findByTrigger(lower)
+                if (skill != null) {
+                    onMessage("Activating skill: ${skill.name}. ${skill.description}")
+                    // Full skill execution will be expanded later
+                }
+
+                // 3. Hybrid AI call
                 val system = buildSystemPrompt()
                 val messages = JSONArray()
                     .put(JSONObject().put("role", "system").put("content", system))
                     .put(JSONObject().put("role", "user").put("content", userGoal))
 
-                var steps = 0
-                val maxSteps = 12  // Keep free tiers alive longer
+                OrbStateManager.thinking()
+                onStatus("Asking AI...")
 
-                while (!stopped && steps < maxSteps) {
-                    steps++
-                    OrbStateManager.thinking()
-                    onStatus("Reasoning (step $steps)...")
+                val raw = router.chat(messages, maxTokens = 450)
+                if (stopped) return@launch
 
-                    val raw = router.chat(messages)
-                    if (stopped) break
+                OrbStateManager.speaking()
+                onMessage(raw)
 
-                    // For now just speak the response (tool calling will be added next)
-                    OrbStateManager.speaking()
-                    onMessage(raw)
-                    break // temporary until full tool loop is ready
-                }
-
-                if (steps >= maxSteps) {
-                    onMessage("I reached my step limit for this free session. Tell me to continue if needed.")
-                }
             } catch (e: Exception) {
                 OrbStateManager.error()
                 onMessage("Something went wrong: ${e.message}")
@@ -76,23 +77,48 @@ class Agent(
         }
     }
 
-    private fun handleLocal(text: String): Boolean {
-        // Instant local responses (no API)
+    private fun handleLocal(lower: String, original: String): Boolean {
         when {
-            text in listOf("hi", "hello", "hey", "hi jimi", "hello jimi") -> {
+            lower in listOf("hi", "hello", "hey", "hi jimi", "hello jimi", "hey jimi") -> {
                 onMessage("Hello. I'm Jimi, your personal assistant. How can I help you today?")
                 return true
             }
-            text.contains("who are you") || text.contains("what are you") -> {
-                onMessage("I'm Jimi — a hybrid AI assistant living on your phone. I can control the device, browse, research, code, and learn new skills over time.")
+            lower.contains("who are you") || lower.contains("what are you") || lower == "about" -> {
+                onMessage("I'm Jimi — a hybrid AI assistant on your phone. I combine local intelligence with free and paid AI models. I can control the device, browse, research, code, and learn new skills.")
                 return true
             }
-            text == "time" || text.contains("what time") -> {
+            lower == "time" || lower.contains("what time") || lower.contains("what's the time") -> {
                 onMessage(phoneTools.currentTime())
                 return true
             }
-            text.contains("battery") -> {
+            lower.contains("battery") -> {
                 onMessage(phoneTools.batteryStatus())
+                return true
+            }
+            lower.contains("device info") || lower == "about phone" -> {
+                onMessage(phoneTools.deviceInfo())
+                return true
+            }
+            lower.startsWith("remember ") -> {
+                val fact = original.removePrefix("remember ").removePrefix("Remember ").trim()
+                val m = memory.add("fact", fact)
+                onMessage(if (m != null) "Got it. I'll remember that." else "I couldn't save that.")
+                return true
+            }
+            lower == "what do you remember" || lower == "my memories" || lower == "show memories" -> {
+                val items = memory.all().take(8)
+                onMessage(
+                    if (items.isEmpty()) "I don't have any long-term memories yet."
+                    else "Here's what I remember:\n" + items.joinToString("\n") { "• ${it.text}" }
+                )
+                return true
+            }
+            lower == "help" || lower == "what can you do" -> {
+                onMessage(
+                    "I can answer questions, remember things, check time and battery, " +
+                    "and soon control your phone, browse the web, research, code, and run skills " +
+                    "like Game Sentinel and Network Radar. Add free API keys in Settings to unlock full intelligence."
+                )
                 return true
             }
         }
@@ -100,12 +126,17 @@ class Agent(
     }
 
     private fun buildSystemPrompt(): String {
+        val mem = memory.promptBlock()
         return """
 You are Jimi, a calm, sharp, and loyal personal AI assistant living on the user's Android phone.
-You speak in short, natural sentences. No markdown, no lists unless asked.
-You can control the phone, browse the web, research, write code, and learn new skills.
-Always prefer the safest path. Ask for confirmation before irreversible actions.
+Speak in short, natural spoken sentences. No markdown, no bullet lists unless the user asks for them.
+You can help with reasoning, research, coding ideas, and planning phone tasks.
+Prefer the safest path. Ask for confirmation before anything irreversible.
 Current time: ${phoneTools.currentTime()}
+Device: ${phoneTools.deviceInfo()}
+
+Long-term memory:
+$mem
 """.trim()
     }
 }
