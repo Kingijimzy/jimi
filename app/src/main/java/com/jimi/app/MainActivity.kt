@@ -34,6 +34,7 @@ import androidx.core.content.ContextCompat
 import com.jimi.app.agent.Agent
 import com.jimi.app.agent.ModelRouter
 import com.jimi.app.agent.OrbStateManager
+import com.jimi.app.prefs.AppPrefs
 import com.jimi.app.ui.JimiOrb
 import com.jimi.app.ui.OrbState
 import com.jimi.app.ui.SettingsScreen
@@ -73,6 +74,7 @@ fun JimiApp() {
 @Composable
 fun JimiScreen(onOpenSettings: () -> Unit) {
     val context = LocalContext.current
+    val appPrefs = remember { AppPrefs(context) }
     var inputText by remember { mutableStateOf("") }
     var messages by remember { mutableStateOf(listOf<ChatMessage>()) }
     var statusText by remember { mutableStateOf("Ready") }
@@ -91,7 +93,8 @@ fun JimiScreen(onOpenSettings: () -> Unit) {
             context = context,
             onMessage = { text ->
                 messages = messages + ChatMessage(text, false)
-                tts.speak(text)
+                tts.enabled = appPrefs.ttsEnabled
+                if (appPrefs.ttsEnabled) tts.speak(text)
             },
             onStatus = { status -> statusText = status }
         )
