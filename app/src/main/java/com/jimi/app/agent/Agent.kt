@@ -3,6 +3,7 @@ package com.jimi.app.agent
 import android.content.Context
 import com.jimi.app.memory.MemoryStore
 import com.jimi.app.skills.GameSentinel
+import com.jimi.app.skills.MacroRunner
 import com.jimi.app.skills.MacroStore
 import com.jimi.app.skills.SkillRegistry
 import com.jimi.app.tools.PhoneTools
@@ -13,7 +14,7 @@ import org.json.JSONObject
 /**
  * The brain of Jimi.
  * Local-first → Free APIs → Paid.
- * Includes Game Sentinel (FC Mobile) + Grok Bot style macros.
+ * Game Sentinel + Grok Bot style macros with real execution.
  */
 class Agent(
     private val context: Context,
@@ -24,10 +25,16 @@ class Agent(
     private val phoneTools = PhoneTools(context)
     private val memory = MemoryStore(context)
     private val gameSentinel = GameSentinel(context)
+    private val macroRunner = MacroRunner(context)
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     @Volatile
     private var stopped = false
+
+    init {
+        // Seed a sample FC Mobile style macro once
+        macroRunner.seedFcDailyExample(context)
+    }
 
     fun stop() {
         stopped = true
@@ -41,6 +48,24 @@ class Agent(
                 onStatus("Thinking...")
 
                 val lower = userGoal.lowercase().trim()
+
+                // Macro run is async — handle specially
+                val runMacro = Regex("^(run|do|play|start) (macro |routine )?(.+)$").find(lower)
+                if (runMacro != null) {
+                    val name = runMacro.groupValues[3].trim()
+                    // Avoid treating "open whatsapp" etc as macro
+                    if (MacroStore.find(context, name) != null || name.contains("fc") || name.contains("daily")) {
+                        OrbStateManager.acting()
+                        onStatus("Running macro...")
+                        val result = macroRunner.run(name) { progress ->
+                            onStatus(progress)
+                        }
+                        onMessage(result)
+                        OrbStateManager.idle()
+                        onStatus("Ready")
+                        return@launch
+                    }
+                }
 
                 if (handleLocal(lower, userGoal)) {
                     OrbStateManager.idle()
@@ -78,31 +103,25 @@ class Agent(
     }
 
     private fun handleLocal(lower: String, original: String): Boolean {
-        // Greetings
         if (lower in listOf("hi", "hello", "hey", "hi jimi", "hello jimi", "hey jimi")) {
             onMessage("Hello. I'm Jimi, your personal assistant. How can I help you today?")
             return true
         }
         if (lower.contains("who are you") || lower.contains("what are you") || lower == "about") {
-            onMessage("I'm Jimi — a hybrid AI assistant on your phone. I can control the device, help with FC Mobile, learn macros like Grok Bot, research, code, and more.")
+            onMessage("I'm Jimi — hybrid AI on your phone. Device control, FC Mobile help, teach-a-task macros, research, and more.")
             return true
         }
 
-        // Time / battery / device
         if (lower == "time" || lower.contains("what time") || lower.contains("what's the time")) {
-            onMessage(phoneTools.currentTime())
-            return true
+            onMessage(phoneTools.currentTime()); return true
         }
         if (lower.contains("battery")) {
-            onMessage(phoneTools.batteryStatus())
-            return true
+            onMessage(phoneTools.batteryStatus()); return true
         }
         if (lower.contains("device info") || lower == "about phone") {
-            onMessage(phoneTools.deviceInfo())
-            return true
+            onMessage(phoneTools.deviceInfo()); return true
         }
 
-        // Memory
         if (lower.startsWith("remember ")) {
             val fact = original.removePrefix("remember ").removePrefix("Remember ").trim()
             val m = memory.add("fact", fact)
@@ -118,7 +137,7 @@ class Agent(
             return true
         }
 
-        // ===== GAME SENTINEL / FC MOBILE =====
+        // Game Sentinel / FC Mobile
         if (lower.contains("fc mobile") || lower.contains("fifa") || lower.contains("game sentinel") ||
             lower.contains("play fc") || lower.contains("open fc")) {
             if (lower.contains("open") || lower.contains("launch") || lower.contains("start") || lower.contains("play")) {
@@ -126,32 +145,18 @@ class Agent(
                 onMessage(gameSentinel.openGame("FC Mobile"))
                 return true
             }
-            if (lower.contains("help") || lower.contains("what can") || lower == "game sentinel") {
-                onMessage(gameSentinel.help("FC Mobile"))
-                return true
-            }
             onMessage(gameSentinel.help("FC Mobile") + "\n\n" + gameSentinel.status())
             return true
         }
 
-        // ===== MACROS (Grok Bot teach-a-task style) =====
+        // Macros list / delete
         if (lower in listOf("list macros", "my macros", "show macros", "list routines")) {
             val names = MacroStore.list(context)
             onMessage(
-                if (names.isEmpty()) "No macros saved yet. Teach me a task once and I can replay it forever."
+                if (names.isEmpty()) "No macros yet. A sample 'fc daily' will appear after first launch. Enable Accessibility then say: run macro fc daily"
                 else "Your macros: " + names.joinToString(", ")
             )
             return true
-        }
-        val runMacro = Regex("^(run|do|play|start) (macro |routine )?(.+)$").find(lower)
-        if (runMacro != null) {
-            val name = runMacro.groupValues[3].trim()
-            val macro = MacroStore.find(context, name)
-            if (macro != null) {
-                onMessage("Running macro \"${macro.name}\" (${macro.steps.size} steps). Full replay engine is being connected next.")
-                // Actual step execution will use Accessibility shortly
-                return true
-            }
         }
         if (lower.startsWith("delete macro ") || lower.startsWith("remove macro ")) {
             val name = original.substringAfter("macro ").trim()
@@ -164,14 +169,13 @@ class Agent(
         val openAppMatch = Regex("^(open|launch|start) (.+)$").find(lower)
         if (openAppMatch != null) {
             val name = openAppMatch.groupValues[2].trim()
-            if (!name.contains("settings")) {
+            if (!name.contains("settings") && !name.startsWith("macro")) {
                 OrbStateManager.acting()
                 onMessage(phoneTools.openApp(name))
                 return true
             }
         }
 
-        // Settings
         val settingsPages = listOf("wifi", "bluetooth", "display", "sound", "battery", "apps", "location", "accessibility")
         for (page in settingsPages) {
             if (lower.contains(page) && lower.contains("settings")) {
@@ -186,7 +190,6 @@ class Agent(
             return true
         }
 
-        // Web search
         val searchMatch = Regex("^(search|google|look up|search for|google for) (.+)$").find(lower)
         if (searchMatch != null) {
             OrbStateManager.acting()
@@ -195,13 +198,11 @@ class Agent(
         }
 
         if (lower.startsWith("open http") || lower.startsWith("open www") || lower.startsWith("go to ")) {
-            val url = original.substringAfter(" ").trim()
             OrbStateManager.acting()
-            onMessage(phoneTools.openUrl(url))
+            onMessage(phoneTools.openUrl(original.substringAfter(" ").trim()))
             return true
         }
 
-        // Volume
         if (lower in listOf("volume up", "turn it up", "louder")) {
             onMessage(phoneTools.setVolume("up")); return true
         }
@@ -220,14 +221,11 @@ class Agent(
             return true
         }
 
-        // Flashlight
         if (lower.contains("flashlight") || lower.contains("torch")) {
-            val off = lower.contains("off")
-            onMessage(phoneTools.flashlight(!off))
+            onMessage(phoneTools.flashlight(!lower.contains("off")))
             return true
         }
 
-        // Dial
         val dialMatch = Regex("^(call|dial|phone) ([0-9 +\\-()]{5,})$").find(lower)
         if (dialMatch != null) {
             OrbStateManager.acting()
@@ -235,13 +233,11 @@ class Agent(
             return true
         }
 
-        // Help
         if (lower == "help" || lower == "what can you do") {
             onMessage(
-                "I can open apps, search the web, control volume and flashlight, " +
-                "help with FC Mobile (Game Sentinel), run macros you teach me (like Grok Bot), " +
-                "remember things, dial numbers, and answer questions with AI. " +
-                "Add free API keys in Settings. Enable Accessibility for full screen control."
+                "I can open apps, search, control volume/flashlight, help with FC Mobile, " +
+                "run macros (say: list macros / run macro fc daily), remember things, " +
+                "and chat with AI. Enable Accessibility for full screen control inside games."
             )
             return true
         }
@@ -252,11 +248,11 @@ class Agent(
     private fun buildSystemPrompt(): String {
         val mem = memory.promptBlock()
         return """
-You are Jimi, a calm, sharp, and loyal personal AI assistant living on the user's Android phone.
-Speak in short, natural spoken sentences. No markdown unless asked.
-You can help with reasoning, research, coding, FC Mobile / games (Game Sentinel), and phone tasks.
-You support teach-a-task macros: user shows a flow once, you replay it forever.
-Prefer the safest path. Ask for confirmation before irreversible actions.
+You are Jimi, a calm, sharp, and loyal personal AI assistant on the user's Android phone.
+Speak in short natural sentences. No markdown unless asked.
+You help with reasoning, research, coding, FC Mobile (Game Sentinel), and phone tasks.
+Teach-a-task macros let the user show a flow once and replay it forever.
+Prefer safety. Ask before irreversible actions.
 Current time: ${phoneTools.currentTime()}
 Device: ${phoneTools.deviceInfo()}
 
