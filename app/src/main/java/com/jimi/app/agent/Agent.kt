@@ -2,6 +2,7 @@ package com.jimi.app.agent
 
 import android.content.Context
 import com.jimi.app.memory.MemoryStore
+import com.jimi.app.memory.TaskStore
 import com.jimi.app.skills.GameSentinel
 import com.jimi.app.skills.MacroRunner
 import com.jimi.app.skills.MacroStore
@@ -22,6 +23,7 @@ class Agent(
     private val router = ModelRouter(context)
     private val phoneTools = PhoneTools(context)
     private val memory = MemoryStore(context)
+    private val tasks = TaskStore(context)
     private val gameSentinel = GameSentinel(context)
     private val networkRadar = NetworkRadar(context)
     private val macroRunner = MacroRunner(context)
@@ -48,20 +50,17 @@ class Agent(
 
                 val lower = userGoal.lowercase().trim()
 
-                // Macro execution
                 val runMacro = Regex("^(run|do|play|start) (macro |routine )?(.+)$").find(lower)
                 if (runMacro != null) {
                     val name = runMacro.groupValues[3].trim()
                     if (MacroStore.find(context, name) != null || name.contains("fc") || name.contains("daily")) {
                         OrbStateManager.acting()
                         onStatus("Running macro...")
-                        val result = macroRunner.run(name) { onStatus(it) }
-                        onMessage(result)
+                        onMessage(macroRunner.run(name) { onStatus(it) })
                         return@launch
                     }
                 }
 
-                // Instant local (no API)
                 if (handleLocal(lower, userGoal)) return@launch
 
                 val skill = SkillRegistry.findByTrigger(lower)
@@ -69,7 +68,6 @@ class Agent(
                     onMessage("Activating skill: ${skill.name}. ${skill.description}")
                 }
 
-                // AI + tool loop (limited steps to protect free tier)
                 val messages = JSONArray()
                     .put(JSONObject().put("role", "system").put("content", buildSystemPrompt()))
                     .put(JSONObject().put("role", "user").put("content", userGoal))
@@ -95,19 +93,14 @@ class Agent(
                             JSONObject().put("role", "user")
                                 .put("content", "Tool result: ${toolResult.message}. Continue if needed, or finish with a short spoken reply.")
                         )
-                        // If tool failed, let model respond once more
                         if (!toolResult.ok && steps >= maxToolSteps - 1) break
                         continue
                     }
 
-                    // Plain language answer
                     OrbStateManager.speaking()
-                    // Strip any accidental TOOL lines from spoken reply
                     val spoken = raw.lines()
                         .filterNot { it.trim().startsWith("TOOL:", ignoreCase = true) }
-                        .joinToString("\n")
-                        .trim()
-                        .ifEmpty { raw }
+                        .joinToString("\n").trim().ifEmpty { raw }
                     onMessage(spoken)
                     break
                 }
@@ -128,7 +121,7 @@ class Agent(
             return true
         }
         if (lower.contains("who are you") || lower.contains("what are you") || lower == "about") {
-            onMessage("I'm Jimi — hybrid AI on your phone. Device control, FC Mobile, macros, network checks, research, and more.")
+            onMessage("I'm Jimi — hybrid AI on your phone. Device control, FC Mobile, macros, tasks, network, research, and more.")
             return true
         }
 
@@ -140,6 +133,31 @@ class Agent(
         }
         if (lower.contains("device info") || lower == "about phone") {
             onMessage(phoneTools.deviceInfo()); return true
+        }
+
+        // Tasks
+        if (lower.startsWith("add task ") || lower.startsWith("todo ") || lower.startsWith("remind me to ")) {
+            val text = when {
+                lower.startsWith("add task ") -> original.substringAfter(" ").substringAfter(" ").trim()
+                lower.startsWith("todo ") -> original.substringAfter(" ").trim()
+                else -> original.substringAfter("to ").trim()
+            }
+            val t = tasks.add(text)
+            onMessage(if (t != null) "Added task: ${t.text}" else "Could not add that task.")
+            return true
+        }
+        if (lower in listOf("my tasks", "list tasks", "show tasks", "tasks")) {
+            val open = tasks.list(false)
+            onMessage(
+                if (open.isEmpty()) "No open tasks."
+                else "Open tasks:\n" + open.joinToString("\n") { "• ${it.text}" }
+            )
+            return true
+        }
+        if (lower.startsWith("done task ") || lower.startsWith("complete task ") || lower.startsWith("finish task ")) {
+            val q = original.substringAfter("task ").trim()
+            onMessage(if (tasks.complete(q)) "Marked done." else "I couldn't find that task.")
+            return true
         }
 
         if (lower.contains("network") || lower.contains("wifi status") || lower.contains("internet status") ||
@@ -276,8 +294,8 @@ class Agent(
 
         if (lower == "help" || lower == "what can you do") {
             onMessage(
-                "I can open apps, search, check network, control the screen, help with FC Mobile, " +
-                "run macros, remember things, and use AI tools. Enable Accessibility for full control."
+                "I can open apps, search, network, screen control, FC Mobile macros, " +
+                "tasks, memory, and AI tools. See docs/COMMANDS.md in the repo. Enable Accessibility for full control."
             )
             return true
         }
@@ -286,7 +304,6 @@ class Agent(
     }
 
     private fun buildSystemPrompt(): String {
-        val mem = memory.promptBlock()
         return """
 You are Jimi, a calm, sharp, loyal personal AI on the user's Android phone.
 Speak in short natural sentences. No markdown unless asked.
@@ -299,7 +316,10 @@ Device: ${phoneTools.deviceInfo()}
 Screen control: ${if (ScreenTools.isReady()) "on" else "off"}
 
 Memory:
-$mem
+${memory.promptBlock()}
+
+Open tasks:
+${tasks.promptBlock()}
 """.trim()
     }
 }
