@@ -9,6 +9,7 @@ import com.jimi.app.skills.NetworkRadar
 import com.jimi.app.skills.SkillRegistry
 import com.jimi.app.tools.PhoneTools
 import com.jimi.app.tools.ScreenTools
+import com.jimi.app.tools.ToolRegistry
 import kotlinx.coroutines.*
 import org.json.JSONArray
 import org.json.JSONObject
@@ -24,6 +25,7 @@ class Agent(
     private val gameSentinel = GameSentinel(context)
     private val networkRadar = NetworkRadar(context)
     private val macroRunner = MacroRunner(context)
+    private val tools = ToolRegistry(context)
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     @Volatile
@@ -46,6 +48,7 @@ class Agent(
 
                 val lower = userGoal.lowercase().trim()
 
+                // Macro execution
                 val runMacro = Regex("^(run|do|play|start) (macro |routine )?(.+)$").find(lower)
                 if (runMacro != null) {
                     val name = runMacro.groupValues[3].trim()
@@ -54,34 +57,60 @@ class Agent(
                         onStatus("Running macro...")
                         val result = macroRunner.run(name) { onStatus(it) }
                         onMessage(result)
-                        OrbStateManager.idle()
-                        onStatus("Ready")
                         return@launch
                     }
                 }
 
-                if (handleLocal(lower, userGoal)) {
-                    OrbStateManager.idle()
-                    onStatus("Ready")
-                    return@launch
-                }
+                // Instant local (no API)
+                if (handleLocal(lower, userGoal)) return@launch
 
                 val skill = SkillRegistry.findByTrigger(lower)
                 if (skill != null) {
                     onMessage("Activating skill: ${skill.name}. ${skill.description}")
                 }
 
-                val system = buildSystemPrompt()
+                // AI + tool loop (limited steps to protect free tier)
                 val messages = JSONArray()
-                    .put(JSONObject().put("role", "system").put("content", system))
+                    .put(JSONObject().put("role", "system").put("content", buildSystemPrompt()))
                     .put(JSONObject().put("role", "user").put("content", userGoal))
 
-                OrbStateManager.thinking()
-                onStatus("Asking AI...")
-                val raw = router.chat(messages, maxTokens = 450)
-                if (stopped) return@launch
-                OrbStateManager.speaking()
-                onMessage(raw)
+                var steps = 0
+                val maxToolSteps = 4
+
+                while (!stopped && steps < maxToolSteps) {
+                    steps++
+                    OrbStateManager.thinking()
+                    onStatus(if (steps == 1) "Asking AI..." else "Continuing (step $steps)...")
+
+                    val raw = router.chat(messages, maxTokens = 400)
+                    if (stopped) break
+
+                    val toolResult = tools.tryParseAndRun(raw)
+                    if (toolResult != null) {
+                        OrbStateManager.acting()
+                        onStatus("Acting...")
+                        onMessage(toolResult.message)
+                        messages.put(JSONObject().put("role", "assistant").put("content", raw))
+                        messages.put(
+                            JSONObject().put("role", "user")
+                                .put("content", "Tool result: ${toolResult.message}. Continue if needed, or finish with a short spoken reply.")
+                        )
+                        // If tool failed, let model respond once more
+                        if (!toolResult.ok && steps >= maxToolSteps - 1) break
+                        continue
+                    }
+
+                    // Plain language answer
+                    OrbStateManager.speaking()
+                    // Strip any accidental TOOL lines from spoken reply
+                    val spoken = raw.lines()
+                        .filterNot { it.trim().startsWith("TOOL:", ignoreCase = true) }
+                        .joinToString("\n")
+                        .trim()
+                        .ifEmpty { raw }
+                    onMessage(spoken)
+                    break
+                }
 
             } catch (e: Exception) {
                 OrbStateManager.error()
@@ -113,43 +142,29 @@ class Agent(
             onMessage(phoneTools.deviceInfo()); return true
         }
 
-        // Network Radar
         if (lower.contains("network") || lower.contains("wifi status") || lower.contains("internet status") ||
             lower == "wifi" || lower.contains("network radar") || lower.contains("connection status")) {
-            if (lower.contains("help")) {
-                onMessage(networkRadar.help())
-            } else {
-                onMessage(networkRadar.status())
-            }
+            onMessage(if (lower.contains("help")) networkRadar.help() else networkRadar.status())
             return true
         }
 
-        // Screen control
         if (lower in listOf("go home", "home screen", "press home")) {
-            OrbStateManager.acting()
-            onMessage(ScreenTools.goHome())
-            return true
+            OrbStateManager.acting(); onMessage(ScreenTools.goHome()); return true
         }
         if (lower in listOf("go back", "press back", "back")) {
-            OrbStateManager.acting()
-            onMessage(ScreenTools.goBack())
-            return true
+            OrbStateManager.acting(); onMessage(ScreenTools.goBack()); return true
         }
         if (lower.startsWith("tap ") || lower.startsWith("click ")) {
             val text = original.substringAfter(" ").trim()
             if (text.isNotBlank()) {
-                OrbStateManager.acting()
-                onMessage(ScreenTools.clickText(text))
-                return true
+                OrbStateManager.acting(); onMessage(ScreenTools.clickText(text)); return true
             }
         }
         if (lower in listOf("read screen", "what is on screen", "screen text", "what's on screen")) {
-            onMessage(ScreenTools.screenSummary())
-            return true
+            onMessage(ScreenTools.screenSummary()); return true
         }
         if (lower.contains("accessibility status") || lower == "screen control") {
-            onMessage(ScreenTools.statusMessage())
-            return true
+            onMessage(ScreenTools.statusMessage()); return true
         }
 
         if (lower.startsWith("remember ")) {
@@ -181,7 +196,7 @@ class Agent(
         if (lower in listOf("list macros", "my macros", "show macros", "list routines")) {
             val names = MacroStore.list(context)
             onMessage(
-                if (names.isEmpty()) "No macros yet. Sample 'fc daily' is created on first launch. Enable Accessibility then: run macro fc daily"
+                if (names.isEmpty()) "No macros yet. Sample 'fc daily' is created on first launch."
                 else "Your macros: " + names.joinToString(", ")
             )
             return true
@@ -261,9 +276,8 @@ class Agent(
 
         if (lower == "help" || lower == "what can you do") {
             onMessage(
-                "I can open apps, search, network status, go home/back, tap on-screen text, " +
-                "FC Mobile macros, volume, flashlight, remember things, and chat with AI. " +
-                "Enable Accessibility for full screen control."
+                "I can open apps, search, check network, control the screen, help with FC Mobile, " +
+                "run macros, remember things, and use AI tools. Enable Accessibility for full control."
             )
             return true
         }
@@ -275,10 +289,11 @@ class Agent(
         val mem = memory.promptBlock()
         return """
 You are Jimi, a calm, sharp, loyal personal AI on the user's Android phone.
-Short natural sentences. No markdown unless asked.
-Help with reasoning, research, coding, FC Mobile, network, and phone tasks.
-Macros: teach once, replay forever.
-Prefer safety.
+Speak in short natural sentences. No markdown unless asked.
+Prefer safety. Ask before irreversible actions.
+
+${tools.catalogForPrompt()}
+
 Time: ${phoneTools.currentTime()}
 Device: ${phoneTools.deviceInfo()}
 Screen control: ${if (ScreenTools.isReady()) "on" else "off"}
