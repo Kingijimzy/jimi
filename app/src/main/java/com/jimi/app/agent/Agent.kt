@@ -5,17 +5,14 @@ import com.jimi.app.memory.MemoryStore
 import com.jimi.app.skills.GameSentinel
 import com.jimi.app.skills.MacroRunner
 import com.jimi.app.skills.MacroStore
+import com.jimi.app.skills.NetworkRadar
 import com.jimi.app.skills.SkillRegistry
 import com.jimi.app.tools.PhoneTools
+import com.jimi.app.tools.ScreenTools
 import kotlinx.coroutines.*
 import org.json.JSONArray
 import org.json.JSONObject
 
-/**
- * The brain of Jimi.
- * Local-first → Free APIs → Paid.
- * Game Sentinel + Grok Bot style macros with real execution.
- */
 class Agent(
     private val context: Context,
     private val onMessage: (String) -> Unit,
@@ -25,6 +22,7 @@ class Agent(
     private val phoneTools = PhoneTools(context)
     private val memory = MemoryStore(context)
     private val gameSentinel = GameSentinel(context)
+    private val networkRadar = NetworkRadar(context)
     private val macroRunner = MacroRunner(context)
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
@@ -32,7 +30,6 @@ class Agent(
     private var stopped = false
 
     init {
-        // Seed a sample FC Mobile style macro once
         macroRunner.seedFcDailyExample(context)
     }
 
@@ -49,17 +46,13 @@ class Agent(
 
                 val lower = userGoal.lowercase().trim()
 
-                // Macro run is async — handle specially
                 val runMacro = Regex("^(run|do|play|start) (macro |routine )?(.+)$").find(lower)
                 if (runMacro != null) {
                     val name = runMacro.groupValues[3].trim()
-                    // Avoid treating "open whatsapp" etc as macro
                     if (MacroStore.find(context, name) != null || name.contains("fc") || name.contains("daily")) {
                         OrbStateManager.acting()
                         onStatus("Running macro...")
-                        val result = macroRunner.run(name) { progress ->
-                            onStatus(progress)
-                        }
+                        val result = macroRunner.run(name) { onStatus(it) }
                         onMessage(result)
                         OrbStateManager.idle()
                         onStatus("Ready")
@@ -85,10 +78,8 @@ class Agent(
 
                 OrbStateManager.thinking()
                 onStatus("Asking AI...")
-
                 val raw = router.chat(messages, maxTokens = 450)
                 if (stopped) return@launch
-
                 OrbStateManager.speaking()
                 onMessage(raw)
 
@@ -108,18 +99,57 @@ class Agent(
             return true
         }
         if (lower.contains("who are you") || lower.contains("what are you") || lower == "about") {
-            onMessage("I'm Jimi — hybrid AI on your phone. Device control, FC Mobile help, teach-a-task macros, research, and more.")
+            onMessage("I'm Jimi — hybrid AI on your phone. Device control, FC Mobile, macros, network checks, research, and more.")
             return true
         }
 
         if (lower == "time" || lower.contains("what time") || lower.contains("what's the time")) {
             onMessage(phoneTools.currentTime()); return true
         }
-        if (lower.contains("battery")) {
+        if (lower.contains("battery") && !lower.contains("settings")) {
             onMessage(phoneTools.batteryStatus()); return true
         }
         if (lower.contains("device info") || lower == "about phone") {
             onMessage(phoneTools.deviceInfo()); return true
+        }
+
+        // Network Radar
+        if (lower.contains("network") || lower.contains("wifi status") || lower.contains("internet status") ||
+            lower == "wifi" || lower.contains("network radar") || lower.contains("connection status")) {
+            if (lower.contains("help")) {
+                onMessage(networkRadar.help())
+            } else {
+                onMessage(networkRadar.status())
+            }
+            return true
+        }
+
+        // Screen control
+        if (lower in listOf("go home", "home screen", "press home")) {
+            OrbStateManager.acting()
+            onMessage(ScreenTools.goHome())
+            return true
+        }
+        if (lower in listOf("go back", "press back", "back")) {
+            OrbStateManager.acting()
+            onMessage(ScreenTools.goBack())
+            return true
+        }
+        if (lower.startsWith("tap ") || lower.startsWith("click ")) {
+            val text = original.substringAfter(" ").trim()
+            if (text.isNotBlank()) {
+                OrbStateManager.acting()
+                onMessage(ScreenTools.clickText(text))
+                return true
+            }
+        }
+        if (lower in listOf("read screen", "what is on screen", "screen text", "what's on screen")) {
+            onMessage(ScreenTools.screenSummary())
+            return true
+        }
+        if (lower.contains("accessibility status") || lower == "screen control") {
+            onMessage(ScreenTools.statusMessage())
+            return true
         }
 
         if (lower.startsWith("remember ")) {
@@ -137,7 +167,6 @@ class Agent(
             return true
         }
 
-        // Game Sentinel / FC Mobile
         if (lower.contains("fc mobile") || lower.contains("fifa") || lower.contains("game sentinel") ||
             lower.contains("play fc") || lower.contains("open fc")) {
             if (lower.contains("open") || lower.contains("launch") || lower.contains("start") || lower.contains("play")) {
@@ -149,23 +178,20 @@ class Agent(
             return true
         }
 
-        // Macros list / delete
         if (lower in listOf("list macros", "my macros", "show macros", "list routines")) {
             val names = MacroStore.list(context)
             onMessage(
-                if (names.isEmpty()) "No macros yet. A sample 'fc daily' will appear after first launch. Enable Accessibility then say: run macro fc daily"
+                if (names.isEmpty()) "No macros yet. Sample 'fc daily' is created on first launch. Enable Accessibility then: run macro fc daily"
                 else "Your macros: " + names.joinToString(", ")
             )
             return true
         }
         if (lower.startsWith("delete macro ") || lower.startsWith("remove macro ")) {
             val name = original.substringAfter("macro ").trim()
-            val ok = MacroStore.delete(context, name)
-            onMessage(if (ok) "Deleted macro \"$name\"." else "I couldn't find that macro.")
+            onMessage(if (MacroStore.delete(context, name)) "Deleted macro \"$name\"." else "Macro not found.")
             return true
         }
 
-        // Open app
         val openAppMatch = Regex("^(open|launch|start) (.+)$").find(lower)
         if (openAppMatch != null) {
             val name = openAppMatch.groupValues[2].trim()
@@ -235,9 +261,9 @@ class Agent(
 
         if (lower == "help" || lower == "what can you do") {
             onMessage(
-                "I can open apps, search, control volume/flashlight, help with FC Mobile, " +
-                "run macros (say: list macros / run macro fc daily), remember things, " +
-                "and chat with AI. Enable Accessibility for full screen control inside games."
+                "I can open apps, search, network status, go home/back, tap on-screen text, " +
+                "FC Mobile macros, volume, flashlight, remember things, and chat with AI. " +
+                "Enable Accessibility for full screen control."
             )
             return true
         }
@@ -248,15 +274,16 @@ class Agent(
     private fun buildSystemPrompt(): String {
         val mem = memory.promptBlock()
         return """
-You are Jimi, a calm, sharp, and loyal personal AI assistant on the user's Android phone.
-Speak in short natural sentences. No markdown unless asked.
-You help with reasoning, research, coding, FC Mobile (Game Sentinel), and phone tasks.
-Teach-a-task macros let the user show a flow once and replay it forever.
-Prefer safety. Ask before irreversible actions.
-Current time: ${phoneTools.currentTime()}
+You are Jimi, a calm, sharp, loyal personal AI on the user's Android phone.
+Short natural sentences. No markdown unless asked.
+Help with reasoning, research, coding, FC Mobile, network, and phone tasks.
+Macros: teach once, replay forever.
+Prefer safety.
+Time: ${phoneTools.currentTime()}
 Device: ${phoneTools.deviceInfo()}
+Screen control: ${if (ScreenTools.isReady()) "on" else "off"}
 
-Long-term memory:
+Memory:
 $mem
 """.trim()
     }
