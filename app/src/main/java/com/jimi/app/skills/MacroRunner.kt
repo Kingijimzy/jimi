@@ -1,0 +1,103 @@
+package com.jimi.app.skills
+
+import android.content.Context
+import com.jimi.app.service.JimiAccessibilityService
+import com.jimi.app.tools.PhoneTools
+import kotlinx.coroutines.delay
+
+/**
+ * Executes saved macros (Grok Bot style teach-a-task).
+ * Uses Accessibility for taps / text clicks when available.
+ */
+class MacroRunner(private val context: Context) {
+
+    private val phone = PhoneTools(context)
+
+    suspend fun run(name: String, onProgress: (String) -> Unit = {}): String {
+        val macro = MacroStore.find(context, name)
+            ?: return "Macro \"$name\" not found. Say 'list macros' to see saved ones."
+
+        val svc = JimiAccessibilityService.instance
+        if (svc == null) {
+            return "Accessibility is off. Enable Jimi in Accessibility settings so macros can control the screen."
+        }
+
+        onProgress("Running \"${macro.name}\" (${macro.steps.size} steps)...")
+
+        for ((index, step) in macro.steps.withIndex()) {
+            onProgress("Step ${index + 1}/${macro.steps.size}: ${step.tool}")
+            val ok = executeStep(svc, step)
+            if (!ok) {
+                return "Macro stopped at step ${index + 1} (${step.tool}). Screen may have changed."
+            }
+            delay(step.delayMs.coerceIn(200, 5000))
+        }
+        return "Macro \"${macro.name}\" finished successfully."
+    }
+
+    private suspend fun executeStep(
+        svc: JimiAccessibilityService,
+        step: MacroStore.MacroStep
+    ): Boolean {
+        return when (step.tool.lowercase()) {
+            "open_app" -> {
+                val name = step.args["name"]?.toString() ?: return false
+                phone.openApp(name)
+                true
+            }
+            "open_url" -> {
+                val url = step.args["url"]?.toString() ?: return false
+                phone.openUrl(url)
+                true
+            }
+            "tap" -> {
+                val x = (step.args["x"] as? Number)?.toFloat() ?: return false
+                val y = (step.args["y"] as? Number)?.toFloat() ?: return false
+                svc.tap(x, y)
+            }
+            "swipe" -> {
+                val x1 = (step.args["x1"] as? Number)?.toFloat() ?: return false
+                val y1 = (step.args["y1"] as? Number)?.toFloat() ?: return false
+                val x2 = (step.args["x2"] as? Number)?.toFloat() ?: return false
+                val y2 = (step.args["y2"] as? Number)?.toFloat() ?: return false
+                svc.swipe(x1, y1, x2, y2)
+            }
+            "click_text" -> {
+                val text = step.args["text"]?.toString() ?: return false
+                svc.clickByText(text)
+            }
+            "type" -> {
+                val text = step.args["text"]?.toString() ?: return false
+                svc.typeText(text)
+            }
+            "back" -> svc.goBack()
+            "home" -> svc.goHome()
+            "wait" -> {
+                val ms = (step.args["ms"] as? Number)?.toLong() ?: 1000L
+                delay(ms.coerceIn(100, 10000))
+                true
+            }
+            else -> {
+                // Unknown tool — skip but don't fail hard
+                true
+            }
+        }
+    }
+
+    /** Create a simple starter macro for FC Mobile style daily claim (user can refine). */
+    fun seedFcDailyExample(context: Context) {
+        if (MacroStore.find(context, "fc daily") != null) return
+        MacroStore.save(
+            context,
+            "fc daily",
+            listOf(
+                MacroStore.MacroStep("open_app", mapOf("name" to "FC Mobile"), 2500),
+                MacroStore.MacroStep("wait", mapOf("ms" to 3000), 500),
+                MacroStore.MacroStep("click_text", mapOf("text" to "Claim"), 1200),
+                MacroStore.MacroStep("click_text", mapOf("text" to "Collect"), 1200),
+                MacroStore.MacroStep("click_text", mapOf("text" to "OK"), 800),
+                MacroStore.MacroStep("click_text", mapOf("text" to "Close"), 800)
+            )
+        )
+    }
+}
