@@ -19,6 +19,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -34,18 +35,18 @@ import com.jimi.app.agent.Agent
 import com.jimi.app.agent.ModelRouter
 import com.jimi.app.agent.OrbStateManager
 import com.jimi.app.ui.JimiOrb
+import com.jimi.app.ui.OrbState
 import com.jimi.app.ui.SettingsScreen
 import com.jimi.app.ui.theme.*
 import com.jimi.app.voice.VoiceInput
+import com.jimi.app.voice.VoiceOutput
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
-            JimiTheme {
-                JimiApp()
-            }
+            JimiTheme { JimiApp() }
         }
     }
 }
@@ -78,11 +79,20 @@ fun JimiScreen(onOpenSettings: () -> Unit) {
     val listState = rememberLazyListState()
 
     val orbState by OrbStateManager.state.collectAsState()
+    val isBusy = orbState != OrbState.IDLE
+
+    val tts = remember { VoiceOutput(context) }
+    DisposableEffect(Unit) {
+        onDispose { tts.shutdown() }
+    }
 
     val agent = remember {
         Agent(
             context = context,
-            onMessage = { text -> messages = messages + ChatMessage(text, false) },
+            onMessage = { text ->
+                messages = messages + ChatMessage(text, false)
+                tts.speak(text)
+            },
             onStatus = { status -> statusText = status }
         )
     }
@@ -90,6 +100,7 @@ fun JimiScreen(onOpenSettings: () -> Unit) {
     fun submit(text: String) {
         val t = text.trim()
         if (t.isBlank()) return
+        tts.stop()
         messages = messages + ChatMessage(t, true)
         inputText = ""
         agent.run(t)
@@ -105,11 +116,9 @@ fun JimiScreen(onOpenSettings: () -> Unit) {
                 statusText = "Ready"
             },
             onListening = {
+                tts.stop()
                 OrbStateManager.listening()
                 statusText = "Listening..."
-            },
-            onDone = {
-                // Agent will update status when it runs
             }
         )
     }
@@ -121,9 +130,8 @@ fun JimiScreen(onOpenSettings: () -> Unit) {
     val micPermission = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
-        if (granted) voice.start() else {
-            messages = messages + ChatMessage("Microphone permission is required for voice.", false)
-        }
+        if (granted) voice.start()
+        else messages = messages + ChatMessage("Microphone permission is required for voice.", false)
     }
 
     fun startVoice() {
@@ -131,6 +139,15 @@ fun JimiScreen(onOpenSettings: () -> Unit) {
             context, Manifest.permission.RECORD_AUDIO
         ) == PackageManager.PERMISSION_GRANTED
         if (granted) voice.start() else micPermission.launch(Manifest.permission.RECORD_AUDIO)
+    }
+
+    fun stopAll() {
+        agent.stop()
+        voice.stop()
+        tts.stop()
+        OrbStateManager.idle()
+        statusText = "Ready"
+        messages = messages + ChatMessage("Stopped.", false)
     }
 
     LaunchedEffect(messages.size) {
@@ -163,8 +180,13 @@ fun JimiScreen(onOpenSettings: () -> Unit) {
                     text = statusText,
                     color = JimiTextDim,
                     fontSize = 13.sp,
-                    modifier = Modifier.padding(end = 12.dp)
+                    modifier = Modifier.padding(end = 4.dp)
                 )
+                if (isBusy) {
+                    IconButton(onClick = { stopAll() }) {
+                        Icon(Icons.Default.Stop, "Stop", tint = JimiError)
+                    }
+                }
                 IconButton(onClick = onOpenSettings) {
                     Icon(Icons.Default.Settings, "Settings", tint = JimiTextDim)
                 }
