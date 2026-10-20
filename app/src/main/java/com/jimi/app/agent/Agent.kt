@@ -2,6 +2,8 @@ package com.jimi.app.agent
 
 import android.content.Context
 import com.jimi.app.memory.MemoryStore
+import com.jimi.app.skills.GameSentinel
+import com.jimi.app.skills.MacroStore
 import com.jimi.app.skills.SkillRegistry
 import com.jimi.app.tools.PhoneTools
 import kotlinx.coroutines.*
@@ -11,6 +13,7 @@ import org.json.JSONObject
 /**
  * The brain of Jimi.
  * Local-first → Free APIs → Paid.
+ * Includes Game Sentinel (FC Mobile) + Grok Bot style macros.
  */
 class Agent(
     private val context: Context,
@@ -20,6 +23,7 @@ class Agent(
     private val router = ModelRouter(context)
     private val phoneTools = PhoneTools(context)
     private val memory = MemoryStore(context)
+    private val gameSentinel = GameSentinel(context)
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     @Volatile
@@ -38,20 +42,17 @@ class Agent(
 
                 val lower = userGoal.lowercase().trim()
 
-                // 1. Instant local handling (no API cost)
                 if (handleLocal(lower, userGoal)) {
                     OrbStateManager.idle()
                     onStatus("Ready")
                     return@launch
                 }
 
-                // 2. Skill trigger
                 val skill = SkillRegistry.findByTrigger(lower)
                 if (skill != null) {
                     onMessage("Activating skill: ${skill.name}. ${skill.description}")
                 }
 
-                // 3. Hybrid AI call
                 val system = buildSystemPrompt()
                 val messages = JSONArray()
                     .put(JSONObject().put("role", "system").put("content", system))
@@ -83,7 +84,7 @@ class Agent(
             return true
         }
         if (lower.contains("who are you") || lower.contains("what are you") || lower == "about") {
-            onMessage("I'm Jimi — a hybrid AI assistant on your phone. I combine local intelligence with free and paid AI models. I can control the device, browse, research, code, and learn new skills.")
+            onMessage("I'm Jimi — a hybrid AI assistant on your phone. I can control the device, help with FC Mobile, learn macros like Grok Bot, research, code, and more.")
             return true
         }
 
@@ -117,18 +118,60 @@ class Agent(
             return true
         }
 
+        // ===== GAME SENTINEL / FC MOBILE =====
+        if (lower.contains("fc mobile") || lower.contains("fifa") || lower.contains("game sentinel") ||
+            lower.contains("play fc") || lower.contains("open fc")) {
+            if (lower.contains("open") || lower.contains("launch") || lower.contains("start") || lower.contains("play")) {
+                OrbStateManager.acting()
+                onMessage(gameSentinel.openGame("FC Mobile"))
+                return true
+            }
+            if (lower.contains("help") || lower.contains("what can") || lower == "game sentinel") {
+                onMessage(gameSentinel.help("FC Mobile"))
+                return true
+            }
+            onMessage(gameSentinel.help("FC Mobile") + "\n\n" + gameSentinel.status())
+            return true
+        }
+
+        // ===== MACROS (Grok Bot teach-a-task style) =====
+        if (lower in listOf("list macros", "my macros", "show macros", "list routines")) {
+            val names = MacroStore.list(context)
+            onMessage(
+                if (names.isEmpty()) "No macros saved yet. Teach me a task once and I can replay it forever."
+                else "Your macros: " + names.joinToString(", ")
+            )
+            return true
+        }
+        val runMacro = Regex("^(run|do|play|start) (macro |routine )?(.+)$").find(lower)
+        if (runMacro != null) {
+            val name = runMacro.groupValues[3].trim()
+            val macro = MacroStore.find(context, name)
+            if (macro != null) {
+                onMessage("Running macro \"${macro.name}\" (${macro.steps.size} steps). Full replay engine is being connected next.")
+                // Actual step execution will use Accessibility shortly
+                return true
+            }
+        }
+        if (lower.startsWith("delete macro ") || lower.startsWith("remove macro ")) {
+            val name = original.substringAfter("macro ").trim()
+            val ok = MacroStore.delete(context, name)
+            onMessage(if (ok) "Deleted macro \"$name\"." else "I couldn't find that macro.")
+            return true
+        }
+
         // Open app
         val openAppMatch = Regex("^(open|launch|start) (.+)$").find(lower)
         if (openAppMatch != null) {
             val name = openAppMatch.groupValues[2].trim()
-            if (name !in listOf("settings", "wifi settings", "bluetooth settings")) {
+            if (!name.contains("settings")) {
                 OrbStateManager.acting()
                 onMessage(phoneTools.openApp(name))
                 return true
             }
         }
 
-        // Settings pages
+        // Settings
         val settingsPages = listOf("wifi", "bluetooth", "display", "sound", "battery", "apps", "location", "accessibility")
         for (page in settingsPages) {
             if (lower.contains(page) && lower.contains("settings")) {
@@ -151,7 +194,6 @@ class Agent(
             return true
         }
 
-        // Open URL
         if (lower.startsWith("open http") || lower.startsWith("open www") || lower.startsWith("go to ")) {
             val url = original.substringAfter(" ").trim()
             OrbStateManager.acting()
@@ -161,20 +203,16 @@ class Agent(
 
         // Volume
         if (lower in listOf("volume up", "turn it up", "louder")) {
-            onMessage(phoneTools.setVolume("up"))
-            return true
+            onMessage(phoneTools.setVolume("up")); return true
         }
         if (lower in listOf("volume down", "turn it down", "quieter")) {
-            onMessage(phoneTools.setVolume("down"))
-            return true
+            onMessage(phoneTools.setVolume("down")); return true
         }
         if (lower == "mute" || lower == "mute volume") {
-            onMessage(phoneTools.setVolume("mute"))
-            return true
+            onMessage(phoneTools.setVolume("mute")); return true
         }
         if (lower == "unmute") {
-            onMessage(phoneTools.setVolume("unmute"))
-            return true
+            onMessage(phoneTools.setVolume("unmute")); return true
         }
         val volSet = Regex("^(set )?volume (to )?(\\d{1,3})$").find(lower)
         if (volSet != null) {
@@ -201,9 +239,9 @@ class Agent(
         if (lower == "help" || lower == "what can you do") {
             onMessage(
                 "I can open apps, search the web, control volume and flashlight, " +
-                "open settings, dial numbers, remember things, check time and battery, " +
-                "and answer questions with AI. Add free API keys in Settings for full intelligence. " +
-                "More control and skills are being added."
+                "help with FC Mobile (Game Sentinel), run macros you teach me (like Grok Bot), " +
+                "remember things, dial numbers, and answer questions with AI. " +
+                "Add free API keys in Settings. Enable Accessibility for full screen control."
             )
             return true
         }
@@ -215,9 +253,10 @@ class Agent(
         val mem = memory.promptBlock()
         return """
 You are Jimi, a calm, sharp, and loyal personal AI assistant living on the user's Android phone.
-Speak in short, natural spoken sentences. No markdown, no bullet lists unless the user asks for them.
-You can help with reasoning, research, coding ideas, and planning phone tasks.
-Prefer the safest path. Ask for confirmation before anything irreversible.
+Speak in short, natural spoken sentences. No markdown unless asked.
+You can help with reasoning, research, coding, FC Mobile / games (Game Sentinel), and phone tasks.
+You support teach-a-task macros: user shows a flow once, you replay it forever.
+Prefer the safest path. Ask for confirmation before irreversible actions.
 Current time: ${phoneTools.currentTime()}
 Device: ${phoneTools.deviceInfo()}
 
