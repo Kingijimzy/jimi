@@ -14,18 +14,22 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Send
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.jimi.app.agent.Agent
+import com.jimi.app.agent.ModelRouter
+import com.jimi.app.agent.OrbStateManager
 import com.jimi.app.ui.JimiOrb
-import com.jimi.app.ui.OrbState
+import com.jimi.app.ui.SettingsScreen
 import com.jimi.app.ui.theme.*
 
 class MainActivity : ComponentActivity() {
@@ -34,7 +38,7 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             JimiTheme {
-                JimiScreen()
+                JimiApp()
             }
         }
     }
@@ -47,13 +51,45 @@ data class ChatMessage(
 )
 
 @Composable
-fun JimiScreen() {
-    var orbState by remember { mutableStateOf(OrbState.IDLE) }
+fun JimiApp() {
+    var showSettings by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    val router = remember { ModelRouter(context) }
+
+    if (showSettings) {
+        SettingsScreen(
+            router = router,
+            onBack = { showSettings = false }
+        )
+    } else {
+        JimiScreen(
+            onOpenSettings = { showSettings = true }
+        )
+    }
+}
+
+@Composable
+fun JimiScreen(onOpenSettings: () -> Unit) {
+    val context = LocalContext.current
     var inputText by remember { mutableStateOf("") }
     var messages by remember { mutableStateOf(listOf<ChatMessage>()) }
+    var statusText by remember { mutableStateOf("Ready") }
     val listState = rememberLazyListState()
 
-    // Auto scroll when new message
+    val orbState by OrbStateManager.state.collectAsState()
+
+    val agent = remember {
+        Agent(
+            context = context,
+            onMessage = { text ->
+                messages = messages + ChatMessage(text, false)
+            },
+            onStatus = { status ->
+                statusText = status
+            }
+        )
+    }
+
     LaunchedEffect(messages.size) {
         if (messages.isNotEmpty()) {
             listState.animateScrollToItem(messages.size - 1)
@@ -67,11 +103,10 @@ fun JimiScreen() {
             .statusBarsPadding()
             .navigationBarsPadding()
     ) {
-        // Top status bar
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = 12.dp),
+                .padding(horizontal = 16.dp, vertical = 10.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -82,35 +117,36 @@ fun JimiScreen() {
                 fontWeight = FontWeight.Bold,
                 letterSpacing = 2.sp
             )
-            Text(
-                text = when (orbState) {
-                    OrbState.IDLE -> "Ready"
-                    OrbState.LISTENING -> "Listening..."
-                    OrbState.THINKING -> "Thinking..."
-                    OrbState.SPEAKING -> "Speaking..."
-                    OrbState.ACTING -> "Working..."
-                    OrbState.ERROR -> "Error"
-                },
-                color = JimiTextDim,
-                fontSize = 13.sp
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = statusText,
+                    color = JimiTextDim,
+                    fontSize = 13.sp,
+                    modifier = Modifier.padding(end = 12.dp)
+                )
+                IconButton(onClick = onOpenSettings) {
+                    Icon(
+                        imageVector = Icons.Default.Settings,
+                        contentDescription = "Settings",
+                        tint = JimiTextDim
+                    )
+                }
+            }
         }
 
-        // Orb section
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .weight(0.45f),
+                .weight(0.42f),
             contentAlignment = Alignment.Center
         ) {
             JimiOrb(state = orbState)
         }
 
-        // Messages
         LazyColumn(
             state = listState,
             modifier = Modifier
-                .weight(0.4f)
+                .weight(0.43f)
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
@@ -120,7 +156,6 @@ fun JimiScreen() {
             }
         }
 
-        // Input bar
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -130,8 +165,8 @@ fun JimiScreen() {
             verticalAlignment = Alignment.CenterVertically
         ) {
             IconButton(onClick = {
-                // TODO: Voice input
-                orbState = OrbState.LISTENING
+                OrbStateManager.listening()
+                statusText = "Listening..."
             }) {
                 Icon(
                     imageVector = Icons.Default.Mic,
@@ -146,18 +181,11 @@ fun JimiScreen() {
                 modifier = Modifier
                     .weight(1f)
                     .padding(horizontal = 8.dp),
-                textStyle = TextStyle(
-                    color = JimiText,
-                    fontSize = 16.sp
-                ),
+                textStyle = TextStyle(color = JimiText, fontSize = 16.sp),
                 cursorBrush = SolidColor(JimiPrimary),
                 decorationBox = { inner ->
                     if (inputText.isEmpty()) {
-                        Text(
-                            "Talk to Jimi...",
-                            color = JimiTextDim,
-                            fontSize = 16.sp
-                        )
+                        Text("Talk to Jimi...", color = JimiTextDim, fontSize = 16.sp)
                     }
                     inner()
                 }
@@ -165,19 +193,11 @@ fun JimiScreen() {
 
             IconButton(
                 onClick = {
-                    if (inputText.isNotBlank()) {
-                        val userMsg = ChatMessage(inputText.trim(), true)
-                        messages = messages + userMsg
+                    val text = inputText.trim()
+                    if (text.isNotBlank()) {
+                        messages = messages + ChatMessage(text, true)
                         inputText = ""
-
-                        // Simulate thinking then reply (will be replaced by real agent)
-                        orbState = OrbState.THINKING
-                        // Temporary mock response
-                        messages = messages + ChatMessage(
-                            "I'm here. Full agent intelligence is being connected next.",
-                            false
-                        )
-                        orbState = OrbState.IDLE
+                        agent.run(text)
                     }
                 }
             ) {
