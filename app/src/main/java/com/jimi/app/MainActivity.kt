@@ -1,9 +1,13 @@
 package com.jimi.app
 
+import android.Manifest
+import android.content.pm.PackageManager
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -25,12 +29,14 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
 import com.jimi.app.agent.Agent
 import com.jimi.app.agent.ModelRouter
 import com.jimi.app.agent.OrbStateManager
 import com.jimi.app.ui.JimiOrb
 import com.jimi.app.ui.SettingsScreen
 import com.jimi.app.ui.theme.*
+import com.jimi.app.voice.VoiceInput
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -57,14 +63,9 @@ fun JimiApp() {
     val router = remember { ModelRouter(context) }
 
     if (showSettings) {
-        SettingsScreen(
-            router = router,
-            onBack = { showSettings = false }
-        )
+        SettingsScreen(router = router, onBack = { showSettings = false })
     } else {
-        JimiScreen(
-            onOpenSettings = { showSettings = true }
-        )
+        JimiScreen(onOpenSettings = { showSettings = true })
     }
 }
 
@@ -81,19 +82,59 @@ fun JimiScreen(onOpenSettings: () -> Unit) {
     val agent = remember {
         Agent(
             context = context,
-            onMessage = { text ->
-                messages = messages + ChatMessage(text, false)
+            onMessage = { text -> messages = messages + ChatMessage(text, false) },
+            onStatus = { status -> statusText = status }
+        )
+    }
+
+    fun submit(text: String) {
+        val t = text.trim()
+        if (t.isBlank()) return
+        messages = messages + ChatMessage(t, true)
+        inputText = ""
+        agent.run(t)
+    }
+
+    val voice = remember {
+        VoiceInput(
+            context = context,
+            onResult = { text -> submit(text) },
+            onError = { err ->
+                messages = messages + ChatMessage(err, false)
+                OrbStateManager.idle()
+                statusText = "Ready"
             },
-            onStatus = { status ->
-                statusText = status
+            onListening = {
+                OrbStateManager.listening()
+                statusText = "Listening..."
+            },
+            onDone = {
+                // Agent will update status when it runs
             }
         )
     }
 
-    LaunchedEffect(messages.size) {
-        if (messages.isNotEmpty()) {
-            listState.animateScrollToItem(messages.size - 1)
+    DisposableEffect(Unit) {
+        onDispose { voice.stop() }
+    }
+
+    val micPermission = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) voice.start() else {
+            messages = messages + ChatMessage("Microphone permission is required for voice.", false)
         }
+    }
+
+    fun startVoice() {
+        val granted = ContextCompat.checkSelfPermission(
+            context, Manifest.permission.RECORD_AUDIO
+        ) == PackageManager.PERMISSION_GRANTED
+        if (granted) voice.start() else micPermission.launch(Manifest.permission.RECORD_AUDIO)
+    }
+
+    LaunchedEffect(messages.size) {
+        if (messages.isNotEmpty()) listState.animateScrollToItem(messages.size - 1)
     }
 
     Column(
@@ -125,11 +166,7 @@ fun JimiScreen(onOpenSettings: () -> Unit) {
                     modifier = Modifier.padding(end = 12.dp)
                 )
                 IconButton(onClick = onOpenSettings) {
-                    Icon(
-                        imageVector = Icons.Default.Settings,
-                        contentDescription = "Settings",
-                        tint = JimiTextDim
-                    )
+                    Icon(Icons.Default.Settings, "Settings", tint = JimiTextDim)
                 }
             }
         }
@@ -151,9 +188,7 @@ fun JimiScreen(onOpenSettings: () -> Unit) {
                 .padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            items(messages) { msg ->
-                MessageBubble(msg)
-            }
+            items(messages) { MessageBubble(it) }
         }
 
         Row(
@@ -164,15 +199,8 @@ fun JimiScreen(onOpenSettings: () -> Unit) {
                 .padding(horizontal = 8.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            IconButton(onClick = {
-                OrbStateManager.listening()
-                statusText = "Listening..."
-            }) {
-                Icon(
-                    imageVector = Icons.Default.Mic,
-                    contentDescription = "Voice",
-                    tint = JimiPrimary
-                )
+            IconButton(onClick = { startVoice() }) {
+                Icon(Icons.Default.Mic, "Voice", tint = JimiPrimary)
             }
 
             BasicTextField(
@@ -191,19 +219,10 @@ fun JimiScreen(onOpenSettings: () -> Unit) {
                 }
             )
 
-            IconButton(
-                onClick = {
-                    val text = inputText.trim()
-                    if (text.isNotBlank()) {
-                        messages = messages + ChatMessage(text, true)
-                        inputText = ""
-                        agent.run(text)
-                    }
-                }
-            ) {
+            IconButton(onClick = { submit(inputText) }) {
                 Icon(
-                    imageVector = Icons.Default.Send,
-                    contentDescription = "Send",
+                    Icons.Default.Send,
+                    "Send",
                     tint = if (inputText.isNotBlank()) JimiPrimary else JimiTextDim
                 )
             }
@@ -230,12 +249,7 @@ fun MessageBubble(msg: ChatMessage) {
                 )
                 .padding(horizontal = 14.dp, vertical = 10.dp)
         ) {
-            Text(
-                text = msg.text,
-                color = JimiText,
-                fontSize = 15.sp,
-                lineHeight = 20.sp
-            )
+            Text(msg.text, color = JimiText, fontSize = 15.sp, lineHeight = 20.sp)
         }
     }
 }
