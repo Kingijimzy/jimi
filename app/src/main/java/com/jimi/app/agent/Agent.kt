@@ -8,6 +8,7 @@ import com.jimi.app.skills.MacroRunner
 import com.jimi.app.skills.MacroStore
 import com.jimi.app.skills.NetworkRadar
 import com.jimi.app.skills.SkillRegistry
+import com.jimi.app.skills.TeachMode
 import com.jimi.app.tools.PhoneTools
 import com.jimi.app.tools.ScreenTools
 import com.jimi.app.tools.ToolRegistry
@@ -27,6 +28,7 @@ class Agent(
     private val gameSentinel = GameSentinel(context)
     private val networkRadar = NetworkRadar(context)
     private val macroRunner = MacroRunner(context)
+    private val teachMode = TeachMode(context)
     private val tools = ToolRegistry(context)
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
@@ -53,7 +55,7 @@ class Agent(
                 val runMacro = Regex("^(run|do|play|start) (macro |routine )?(.+)$").find(lower)
                 if (runMacro != null) {
                     val name = runMacro.groupValues[3].trim()
-                    if (MacroStore.find(context, name) != null || name.contains("fc") || name.contains("daily")) {
+                    if (name != "teaching" && (MacroStore.find(context, name) != null || name.contains("fc") || name.contains("daily"))) {
                         OrbStateManager.acting()
                         onStatus("Running macro...")
                         onMessage(macroRunner.run(name) { onStatus(it) })
@@ -121,7 +123,30 @@ class Agent(
             return true
         }
         if (lower.contains("who are you") || lower.contains("what are you") || lower == "about") {
-            onMessage("I'm Jimi — hybrid AI on your phone. Device control, FC Mobile, macros, tasks, network, research, and more.")
+            onMessage("I'm Jimi — hybrid AI on your phone. Device control, FC Mobile, teach-a-task macros, tasks, network, and more.")
+            return true
+        }
+
+        // Teach mode
+        if (lower.startsWith("teach ") || lower.startsWith("start teaching ") || lower == "start teaching") {
+            val name = when {
+                lower.startsWith("start teaching ") -> original.substringAfter("teaching ").trim()
+                lower.startsWith("teach ") -> original.substringAfter(" ").trim()
+                else -> "custom"
+            }.ifEmpty { "custom" }
+            onMessage(teachMode.start(name))
+            return true
+        }
+        if (lower in listOf("stop teaching", "finish teaching", "save teaching", "end teaching")) {
+            onMessage(teachMode.stopAndSave())
+            return true
+        }
+        if (lower == "cancel teaching") {
+            onMessage(teachMode.cancel())
+            return true
+        }
+        if (lower == "teaching status") {
+            onMessage(teachMode.status())
             return true
         }
 
@@ -135,7 +160,6 @@ class Agent(
             onMessage(phoneTools.deviceInfo()); return true
         }
 
-        // Tasks
         if (lower.startsWith("add task ") || lower.startsWith("todo ") || lower.startsWith("remind me to ")) {
             val text = when {
                 lower.startsWith("add task ") -> original.substringAfter(" ").substringAfter(" ").trim()
@@ -167,14 +191,17 @@ class Agent(
         }
 
         if (lower in listOf("go home", "home screen", "press home")) {
+            if (teachMode.isRecording()) teachMode.recordHome()
             OrbStateManager.acting(); onMessage(ScreenTools.goHome()); return true
         }
         if (lower in listOf("go back", "press back", "back")) {
+            if (teachMode.isRecording()) teachMode.recordBack()
             OrbStateManager.acting(); onMessage(ScreenTools.goBack()); return true
         }
         if (lower.startsWith("tap ") || lower.startsWith("click ")) {
             val text = original.substringAfter(" ").trim()
             if (text.isNotBlank()) {
+                if (teachMode.isRecording()) teachMode.recordClickText(text)
                 OrbStateManager.acting(); onMessage(ScreenTools.clickText(text)); return true
             }
         }
@@ -203,6 +230,7 @@ class Agent(
         if (lower.contains("fc mobile") || lower.contains("fifa") || lower.contains("game sentinel") ||
             lower.contains("play fc") || lower.contains("open fc")) {
             if (lower.contains("open") || lower.contains("launch") || lower.contains("start") || lower.contains("play")) {
+                if (teachMode.isRecording()) teachMode.recordOpenApp("FC Mobile")
                 OrbStateManager.acting()
                 onMessage(gameSentinel.openGame("FC Mobile"))
                 return true
@@ -214,7 +242,7 @@ class Agent(
         if (lower in listOf("list macros", "my macros", "show macros", "list routines")) {
             val names = MacroStore.list(context)
             onMessage(
-                if (names.isEmpty()) "No macros yet. Sample 'fc daily' is created on first launch."
+                if (names.isEmpty()) "No macros yet. Sample 'fc daily' is created on first launch. Or say: teach daily rewards"
                 else "Your macros: " + names.joinToString(", ")
             )
             return true
@@ -228,7 +256,8 @@ class Agent(
         val openAppMatch = Regex("^(open|launch|start) (.+)$").find(lower)
         if (openAppMatch != null) {
             val name = openAppMatch.groupValues[2].trim()
-            if (!name.contains("settings") && !name.startsWith("macro")) {
+            if (!name.contains("settings") && !name.startsWith("macro") && name != "teaching") {
+                if (teachMode.isRecording()) teachMode.recordOpenApp(name)
                 OrbStateManager.acting()
                 onMessage(phoneTools.openApp(name))
                 return true
@@ -294,8 +323,9 @@ class Agent(
 
         if (lower == "help" || lower == "what can you do") {
             onMessage(
-                "I can open apps, search, network, screen control, FC Mobile macros, " +
-                "tasks, memory, and AI tools. See docs/COMMANDS.md in the repo. Enable Accessibility for full control."
+                "I can open apps, search, network, screen control, FC Mobile, " +
+                "teach macros (say: teach daily rewards … stop teaching), " +
+                "tasks, memory, voice, and AI tools. Enable Accessibility for full control."
             )
             return true
         }
@@ -314,6 +344,7 @@ ${tools.catalogForPrompt()}
 Time: ${phoneTools.currentTime()}
 Device: ${phoneTools.deviceInfo()}
 Screen control: ${if (ScreenTools.isReady()) "on" else "off"}
+Teaching: ${if (teachMode.isRecording()) teachMode.status() else "off"}
 
 Memory:
 ${memory.promptBlock()}
