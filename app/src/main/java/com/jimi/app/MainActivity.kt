@@ -1,8 +1,10 @@
 package com.jimi.app
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Bundle
+import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -39,6 +41,7 @@ import com.jimi.app.agent.PendingActionBus
 import com.jimi.app.prefs.AppPrefs
 import com.jimi.app.ui.ConfirmDialog
 import com.jimi.app.ui.JimiOrb
+import com.jimi.app.ui.OnboardingCard
 import com.jimi.app.ui.OrbState
 import com.jimi.app.ui.SettingsScreen
 import com.jimi.app.ui.theme.*
@@ -82,6 +85,7 @@ fun JimiScreen(onOpenSettings: () -> Unit) {
     var messages by remember { mutableStateOf(listOf<ChatMessage>()) }
     var statusText by remember { mutableStateOf("Ready") }
     var pending by remember { mutableStateOf<PendingAction?>(null) }
+    var showOnboarding by remember { mutableStateOf(!appPrefs.onboardingDismissed) }
     val listState = rememberLazyListState()
 
     val orbState by OrbStateManager.state.collectAsState()
@@ -163,6 +167,16 @@ fun JimiScreen(onOpenSettings: () -> Unit) {
         messages = messages + ChatMessage("Stopped.", false)
     }
 
+    fun openAccessibility() {
+        try {
+            context.startActivity(
+                Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            )
+        } catch (_: Exception) {
+            messages = messages + ChatMessage("Could not open Accessibility settings.", false)
+        }
+    }
+
     LaunchedEffect(messages.size) {
         if (messages.isNotEmpty()) listState.animateScrollToItem(messages.size - 1)
     }
@@ -228,10 +242,21 @@ fun JimiScreen(onOpenSettings: () -> Unit) {
             }
         }
 
+        if (showOnboarding) {
+            OnboardingCard(
+                onOpenSettings = onOpenSettings,
+                onOpenAccessibility = { openAccessibility() },
+                onDismiss = {
+                    appPrefs.onboardingDismissed = true
+                    showOnboarding = false
+                }
+            )
+        }
+
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .weight(0.42f),
+                .weight(0.40f),
             contentAlignment = Alignment.Center
         ) {
             JimiOrb(state = orbState)
