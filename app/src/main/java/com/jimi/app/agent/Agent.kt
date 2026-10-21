@@ -3,6 +3,7 @@ package com.jimi.app.agent
 import android.content.Context
 import com.jimi.app.memory.MemoryStore
 import com.jimi.app.memory.TaskStore
+import com.jimi.app.prefs.AppPrefs
 import com.jimi.app.skills.GameSentinel
 import com.jimi.app.skills.MacroRunner
 import com.jimi.app.skills.MacroStore
@@ -25,6 +26,7 @@ class Agent(
     private val phoneTools = PhoneTools(context)
     private val memory = MemoryStore(context)
     private val tasks = TaskStore(context)
+    private val prefs = AppPrefs(context)
     private val gameSentinel = GameSentinel(context)
     private val networkRadar = NetworkRadar(context)
     private val macroRunner = MacroRunner(context)
@@ -127,7 +129,6 @@ class Agent(
             return true
         }
 
-        // Teach mode
         if (lower.startsWith("teach ") || lower.startsWith("start teaching ") || lower == "start teaching") {
             val name = when {
                 lower.startsWith("start teaching ") -> original.substringAfter("teaching ").trim()
@@ -316,16 +317,27 @@ class Agent(
 
         val dialMatch = Regex("^(call|dial|phone) ([0-9 +\\-()]{5,})$").find(lower)
         if (dialMatch != null) {
-            OrbStateManager.acting()
-            onMessage(phoneTools.dial(dialMatch.groupValues[2]))
+            val number = dialMatch.groupValues[2]
+            if (prefs.confirmSensitive) {
+                PendingActionBus.request(
+                    PendingAction(
+                        title = "Confirm call",
+                        message = "Open dialer with $number?",
+                        action = { phoneTools.dial(number) }
+                    )
+                )
+                onMessage("Confirm to open the dialer with $number.")
+            } else {
+                OrbStateManager.acting()
+                onMessage(phoneTools.dial(number))
+            }
             return true
         }
 
         if (lower == "help" || lower == "what can you do") {
             onMessage(
                 "I can open apps, search, network, screen control, FC Mobile, " +
-                "teach macros (say: teach daily rewards … stop teaching), " +
-                "tasks, memory, voice, and AI tools. Enable Accessibility for full control."
+                "teach macros, tasks, memory, voice, and AI tools. Enable Accessibility for full control."
             )
             return true
         }
