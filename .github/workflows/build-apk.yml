@@ -7,6 +7,9 @@ on:
   release:
     types: [ published ]
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -33,17 +36,60 @@ jobs:
       - name: Build debug APK
         run: ./gradlew assembleDebug --stacktrace
 
+      - name: Prepare installable APK
+        run: |
+          mkdir -p dist
+          SRC=$(ls app/build/outputs/apk/debug/*.apk | head -n 1)
+          echo "Source APK: $SRC"
+          ls -lh "$SRC"
+          # Verify it is a valid zip/APK
+          unzip -t "$SRC" | tail -n 5
+          cp "$SRC" dist/jimi-debug.apk
+          # Size check (real APK should be > 1MB typically)
+          SIZE=$(stat -c%s dist/jimi-debug.apk)
+          echo "APK size bytes: $SIZE"
+          if [ "$SIZE" -lt 100000 ]; then
+            echo "APK looks too small — build may be broken"
+            exit 1
+          fi
+          # Show package info if aapt available
+          if command -v aapt >/dev/null 2>&1; then
+            aapt dump badging dist/jimi-debug.apk | head -n 5 || true
+          fi
+
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: jimi-debug-apk
-          path: app/build/outputs/apk/debug/*.apk
+          path: dist/jimi-debug.apk
           if-no-files-found: error
+          compression-level: 0
+
+      - name: Publish continuous release
+        if: github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: Jimi latest build
+          body: |
+            **Install steps (Redmi):**
+            1. Download **jimi-debug.apk** below (not a zip).
+            2. Open the file with Package Installer.
+            3. Allow Install unknown apps for Chrome/Files if asked.
+            4. If you already have an older Jimi, uninstall it first, then install.
+
+            Do **not** try to install the GitHub Actions artifact zip without extracting it first.
+          files: dist/jimi-debug.apk
+          draft: false
+          prerelease: true
+          make_latest: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Attach APK to GitHub Release
         if: github.event_name == 'release'
         uses: softprops/action-gh-release@v2
         with:
-          files: app/build/outputs/apk/debug/*.apk
+          files: dist/jimi-debug.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
