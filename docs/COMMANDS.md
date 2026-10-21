@@ -23,10 +23,34 @@
 | open FC Mobile | Game Sentinel |
 | list macros | Saved macros |
 | run macro fc daily | Replay macro |
+| teach daily rewards | Start teach-a-task |
+| stop teaching | Save recorded macro |
+| cancel teaching | Discard recording |
+| teaching status | Steps so far |
 | add task ... | Task list |
 | my tasks | Show open tasks |
 | done task ... | Complete task |
 | help | Capability summary |
+
+## Voice
+
+- Tap **mic** → speak → same as typing a command
+- Replies can be spoken (TTS) — toggle in Settings
+- **Stop** button cancels agent + speech while busy
+
+## Teach-a-task (Grok Bot style)
+
+```
+teach daily rewards
+open FC Mobile
+tap Claim
+tap Collect
+stop teaching
+```
+
+Then later: `run macro daily rewards`
+
+While teaching, open app / tap / home / back are recorded automatically.
 
 ## AI + tools
 
@@ -39,10 +63,12 @@ TOOL: web_search {"query":"FC Mobile tips"}
 TOOL: click_text {"text":"Claim"}
 ```
 
-Jimi runs the tool and can continue up to a few steps.
+Jimi runs the tool and can continue up to a few steps (protects free tier).
 
 ## Setup tips
 
 1. Enable **Accessibility** for Jimi
-2. Add free API keys in **Settings** (Groq or Gemini first)
-3. For FC Mobile: `run macro fc daily` after Accessibility is on
+2. Allow **Microphone** for voice
+3. Add free API keys in **Settings** (Groq or Gemini first)
+4. For FC Mobile: Accessibility on, then `run macro fc daily`
+5. On MIUI/Redmi: lock app in Recents, allow autostart
