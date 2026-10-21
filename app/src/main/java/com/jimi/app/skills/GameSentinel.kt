@@ -6,15 +6,6 @@ import com.jimi.app.tools.PhoneTools
 
 /**
  * Game Sentinel — help with mobile games like FC Mobile.
- *
- * Realistic scope on a phone:
- * - Open the game
- * - Claim daily rewards / simple UI flows via macros
- * - Describe the screen (when vision is available)
- * - Record a sequence once and replay it (Grok Bot style teach-a-task)
- *
- * Full autonomous "play the match" requires vision + fast control and
- * is best done with recorded macros + occasional AI decisions.
  */
 class GameSentinel(private val context: Context) {
 
@@ -49,19 +40,17 @@ class GameSentinel(private val context: Context) {
         )
     )
 
-    fun findProfile(query: String): GameProfile? {
+    fun findProfile(query: String): GameProfile {
         val q = query.lowercase()
         return profiles.firstOrNull { p ->
             p.name.lowercase().contains(q) ||
                     p.packageHints.any { q.contains(it) } ||
                     q.contains("fc mobile") || q.contains("fifa")
-        } ?: profiles.last()
+        } ?: profiles.first()
     }
 
-    /** Open the game if possible. */
     fun openGame(gameName: String = "FC Mobile"): String {
         val profile = findProfile(gameName)
-        // Try common names
         val candidates = listOf("FC Mobile", "EA Sports FC", "FIFA", profile.name)
         for (name in candidates) {
             val result = phone.openApp(name)
@@ -70,7 +59,6 @@ class GameSentinel(private val context: Context) {
         return "I couldn't find FC Mobile installed. Please install it or tell me the exact app name."
     }
 
-    /** High-level help text for the user. */
     fun help(gameName: String = "FC Mobile"): String {
         val profile = findProfile(gameName)
         return buildString {
