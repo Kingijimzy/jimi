@@ -33,9 +33,9 @@ fun SettingsScreen(
     val appPrefs = remember { AppPrefs(context) }
 
     val providers = listOf(
-        "groq" to "Groq (fast free)",
-        "gemini" to "Gemini Flash-Lite (free + vision)",
-        "openrouter" to "OpenRouter Free",
+        "gemini" to "Gemini (Google AI Studio) — best free",
+        "groq" to "Groq — fast free",
+        "openrouter" to "OpenRouter (free models; often limited)",
         "deepseek" to "DeepSeek (paid later)"
     )
 
@@ -81,13 +81,7 @@ fun SettingsScreen(
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 20.dp)
         ) {
-            Text(
-                text = "Voice",
-                color = JimiPrimary,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Medium,
-                modifier = Modifier.padding(bottom = 8.dp)
-            )
+            Text("Voice", color = JimiPrimary, fontSize = 14.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(bottom = 8.dp))
             ToggleRow(
                 title = "Speak replies (TTS)",
                 checked = ttsEnabled,
@@ -96,16 +90,14 @@ fun SettingsScreen(
                     appPrefs.ttsEnabled = it
                 }
             )
-
-            Spacer(modifier = Modifier.height(20.dp))
-
             Text(
-                text = "Safety",
-                color = JimiPrimary,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Medium,
-                modifier = Modifier.padding(bottom = 8.dp)
+                text = "Mic permission + Google speech. On Redmi: App info → Permissions → Microphone.",
+                color = JimiTextDim,
+                fontSize = 12.sp,
+                modifier = Modifier.padding(top = 4.dp, bottom = 16.dp)
             )
+
+            Text("Safety", color = JimiPrimary, fontSize = 14.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(bottom = 8.dp))
             ToggleRow(
                 title = "Confirm sensitive actions",
                 checked = confirmSensitive,
@@ -114,29 +106,12 @@ fun SettingsScreen(
                     appPrefs.confirmSensitive = it
                 }
             )
-            Text(
-                text = "When on, dial asks before opening the phone app.",
-                color = JimiTextDim,
-                fontSize = 12.sp,
-                modifier = Modifier.padding(top = 4.dp, bottom = 16.dp)
-            )
 
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(16.dp))
 
-            Text(
-                text = "Macros",
-                color = JimiPrimary,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Medium,
-                modifier = Modifier.padding(bottom = 8.dp)
-            )
+            Text("Macros", color = JimiPrimary, fontSize = 14.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(bottom = 8.dp))
             if (macros.isEmpty()) {
-                Text(
-                    text = "No macros yet. Say: teach daily rewards", 
-                    color = JimiTextDim,
-                    fontSize = 13.sp,
-                    modifier = Modifier.padding(bottom = 12.dp)
-                )
+                Text("No macros yet. Say: teach daily rewards", color = JimiTextDim, fontSize = 13.sp, modifier = Modifier.padding(bottom = 12.dp))
             } else {
                 macros.forEach { name ->
                     Row(
@@ -149,37 +124,27 @@ fun SettingsScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(name, color = JimiText, fontSize = 14.sp)
-                        IconButton(
-                            onClick = {
-                                MacroStore.delete(context, name)
-                                macros = MacroStore.list(context)
-                            }
-                        ) {
+                        IconButton(onClick = {
+                            MacroStore.delete(context, name)
+                            macros = MacroStore.list(context)
+                        }) {
                             Icon(Icons.Default.Delete, "Delete", tint = JimiError)
                         }
                     }
                 }
-                Text(
-                    text = "Run with: run macro <name>",
-                    color = JimiTextDim,
-                    fontSize = 12.sp,
-                    modifier = Modifier.padding(bottom = 16.dp)
-                )
             }
 
             Spacer(modifier = Modifier.height(8.dp))
 
+            Text("API Keys", color = JimiPrimary, fontSize = 14.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(bottom = 8.dp))
             Text(
-                text = "API Keys",
-                color = JimiPrimary,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Medium,
-                modifier = Modifier.padding(bottom = 8.dp)
-            )
-            Text(
-                text = "Add free keys first. Jimi uses the best available provider.",
+                text = "Recommended: Gemini from Google AI Studio\n" +
+                        "https://aistudio.google.com/apikey\n\n" +
+                        "Paste the key only (usually starts with AIza).\n" +
+                        "OpenRouter free quota runs out often — use Gemini or Groq.",
                 color = JimiTextDim,
                 fontSize = 13.sp,
+                lineHeight = 18.sp,
                 modifier = Modifier.padding(bottom = 16.dp)
             )
 
@@ -195,34 +160,9 @@ fun SettingsScreen(
                 Spacer(modifier = Modifier.height(14.dp))
             }
 
-            Spacer(modifier = Modifier.height(16.dp))
-
-            TextButton(
-                onClick = {
-                    appPrefs.onboardingDismissed = false
-                }
-            ) {
+            TextButton(onClick = { appPrefs.onboardingDismissed = false }) {
                 Text("Show setup checklist again", color = JimiPrimary, fontSize = 13.sp)
             }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            Text(
-                text = "Tips",
-                color = JimiPrimary,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Medium,
-                modifier = Modifier.padding(bottom = 8.dp)
-            )
-            Text(
-                text = "• Groq and Gemini are the best free starting points.\n" +
-                        "• Enable Accessibility for screen control and FC Mobile.\n" +
-                        "• Keys stay only on this device.\n" +
-                        "• On Redmi: lock Jimi in Recents + allow autostart.",
-                color = JimiTextDim,
-                fontSize = 13.sp,
-                lineHeight = 20.sp
-            )
 
             Spacer(modifier = Modifier.height(40.dp))
         }
@@ -230,11 +170,7 @@ fun SettingsScreen(
 }
 
 @Composable
-private fun ToggleRow(
-    title: String,
-    checked: Boolean,
-    onCheckedChange: (Boolean) -> Unit
-) {
+private fun ToggleRow(title: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -256,18 +192,9 @@ private fun ToggleRow(
 }
 
 @Composable
-private fun KeyField(
-    label: String,
-    value: String,
-    onValueChange: (String) -> Unit
-) {
+private fun KeyField(label: String, value: String, onValueChange: (String) -> Unit) {
     Column {
-        Text(
-            text = label,
-            color = JimiText,
-            fontSize = 14.sp,
-            modifier = Modifier.padding(bottom = 6.dp)
-        )
+        Text(label, color = JimiText, fontSize = 14.sp, modifier = Modifier.padding(bottom = 6.dp))
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -281,9 +208,7 @@ private fun KeyField(
                 cursorBrush = SolidColor(JimiPrimary),
                 modifier = Modifier.fillMaxWidth(),
                 decorationBox = { inner ->
-                    if (value.isEmpty()) {
-                        Text("Paste API key here...", color = JimiTextDim, fontSize = 14.sp)
-                    }
+                    if (value.isEmpty()) Text("Paste API key here...", color = JimiTextDim, fontSize = 14.sp)
                     inner()
                 }
             )
