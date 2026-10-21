@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Jimi</string>
-    <string name="accessibility_service_description">Jimi needs accessibility access to control your phone, read the screen, and help you complete tasks safely.</string>
+    <string name="accessibility_service_description">Jimi needs accessibility access to control your phone, read the screen, run macros, and help with games like FC Mobile safely.</string>
+    <string name="accessibility_service_summary">Phone control, macros, and Game Sentinel</string>
 </resources>
