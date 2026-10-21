@@ -13,36 +13,74 @@ import java.util.concurrent.TimeUnit
 
 /**
  * Hybrid intelligence router.
- * Order: Local rules → Free APIs → Paid (DeepSeek).
- * Real HTTP calls with basic rate-limit awareness.
+ * Supports:
+ * - Groq (OpenAI-compatible)
+ * - Google AI Studio Gemini (native generateContent + API key)
+ * - OpenRouter free models (with required headers)
+ * - DeepSeek paid
  */
 class ModelRouter(private val context: Context) {
 
-    enum class Tier { LOCAL, FREE, PAID }
+    enum class Tier { FREE, PAID }
+    enum class ApiStyle { OPENAI, GEMINI_NATIVE }
 
     data class Provider(
         val id: String,
         val name: String,
         val baseUrl: String,
-        val model: String,
+        val models: List<String>,
         val tier: Tier,
+        val style: ApiStyle = ApiStyle.OPENAI,
         val hasVision: Boolean = false
     )
 
     private val providers = listOf(
-        Provider("groq", "Groq", "https://api.groq.com/openai/v1",
-            "llama-3.3-70b-versatile", Tier.FREE),
-        Provider("gemini", "Gemini Flash-Lite", "https://generativelanguage.googleapis.com/v1beta/openai",
-            "gemini-2.0-flash-lite", Tier.FREE, hasVision = true),
-        Provider("openrouter", "OpenRouter Free", "https://openrouter.ai/api/v1",
-            "meta-llama/llama-3.3-70b-instruct:free", Tier.FREE),
-        Provider("deepseek", "DeepSeek", "https://api.deepseek.com",
-            "deepseek-chat", Tier.PAID)
+        Provider(
+            id = "groq",
+            name = "Groq",
+            baseUrl = "https://api.groq.com/openai/v1",
+            models = listOf("llama-3.3-70b-versatile", "llama-3.1-8b-instant"),
+            tier = Tier.FREE
+        ),
+        Provider(
+            id = "gemini",
+            name = "Gemini (Google AI Studio)",
+            baseUrl = "https://generativelanguage.googleapis.com/v1beta",
+            models = listOf(
+                "gemini-2.0-flash-lite",
+                "gemini-2.0-flash",
+                "gemini-1.5-flash",
+                "gemini-1.5-flash-latest"
+            ),
+            tier = Tier.FREE,
+            style = ApiStyle.GEMINI_NATIVE,
+            hasVision = true
+        ),
+        Provider(
+            id = "openrouter",
+            name = "OpenRouter",
+            baseUrl = "https://openrouter.ai/api/v1",
+            models = listOf(
+                "google/gemma-2-9b-it:free",
+                "meta-llama/llama-3.2-3b-instruct:free",
+                "qwen/qwen-2.5-7b-instruct:free",
+                "mistralai/mistral-7b-instruct:free",
+                "openrouter/auto"
+            ),
+            tier = Tier.FREE
+        ),
+        Provider(
+            id = "deepseek",
+            name = "DeepSeek",
+            baseUrl = "https://api.deepseek.com",
+            models = listOf("deepseek-chat"),
+            tier = Tier.PAID
+        )
     )
 
     private val client = OkHttpClient.Builder()
-        .connectTimeout(20, TimeUnit.SECONDS)
-        .readTimeout(60, TimeUnit.SECONDS)
+        .connectTimeout(25, TimeUnit.SECONDS)
+        .readTimeout(90, TimeUnit.SECONDS)
         .writeTimeout(30, TimeUnit.SECONDS)
         .build()
 
@@ -50,7 +88,7 @@ class ModelRouter(private val context: Context) {
 
     fun getKey(providerId: String): String {
         val prefs = context.getSharedPreferences("jimi_keys", Context.MODE_PRIVATE)
-        return prefs.getString("key_$providerId", "") ?: ""
+        return prefs.getString("key_$providerId", "")?.trim().orEmpty()
     }
 
     fun setKey(providerId: String, key: String) {
@@ -60,20 +98,20 @@ class ModelRouter(private val context: Context) {
             .apply()
     }
 
-    fun availableProviders(): List<Provider> {
-        return providers.filter { p ->
-            getKey(p.id).isNotEmpty()
-        }
-    }
+    fun availableProviders(): List<Provider> =
+        providers.filter { getKey(it.id).isNotEmpty() }
 
     fun bestProvider(needVision: Boolean = false): Provider? {
         val available = availableProviders()
         if (available.isEmpty()) return null
-
         val free = available.filter { it.tier == Tier.FREE && (!needVision || it.hasVision) }
-        if (free.isNotEmpty()) return free.first()
-
-        return available.filter { it.tier == Tier.PAID && (!needVision || it.hasVision) }.firstOrNull()
+        if (free.isNotEmpty()) {
+            // Prefer Gemini then Groq then OpenRouter when multiple keys exist
+            return free.firstOrNull { it.id == "gemini" }
+                ?: free.firstOrNull { it.id == "groq" }
+                ?: free.first()
+        }
+        return available.firstOrNull { it.tier == Tier.PAID && (!needVision || it.hasVision) }
     }
 
     suspend fun chat(
@@ -82,40 +120,177 @@ class ModelRouter(private val context: Context) {
         maxTokens: Int = 500
     ): String = withContext(Dispatchers.IO) {
         val provider = bestProvider(needVision)
-            ?: return@withContext "No AI provider configured yet. Open Settings and add a free API key (Groq or Gemini recommended)."
+            ?: return@withContext "No AI provider configured. Open Settings and paste a free key from Google AI Studio (Gemini) or Groq."
 
         val key = getKey(provider.id)
-        val body = JSONObject()
-            .put("model", provider.model)
-            .put("messages", messages)
-            .put("max_tokens", maxTokens)
-            .put("temperature", 0.4)
+        if (key.isEmpty()) {
+            return@withContext "${provider.name} key is empty. Paste it again in Settings."
+        }
 
-        val request = Request.Builder()
-            .url("${provider.baseUrl}/chat/completions")
-            .addHeader("Authorization", "Bearer $key")
-            .addHeader("Content-Type", "application/json")
-            .post(body.toString().toRequestBody(jsonMedia))
-            .build()
-
-        try {
-            client.newCall(request).execute().use { response ->
-                val raw = response.body?.string() ?: ""
-                if (!response.isSuccessful) {
-                    return@withContext when (response.code) {
-                        401, 403 -> "${provider.name} rejected the key. Please check it in Settings."
-                        429 -> "${provider.name} rate limit reached. Try again in a minute or add another free key."
-                        else -> "${provider.name} error (${response.code}): ${raw.take(180)}"
-                    }
-                }
-                extractContent(raw)
-            }
-        } catch (e: Exception) {
-            "Could not reach ${provider.name}: ${e.message}"
+        when (provider.style) {
+            ApiStyle.GEMINI_NATIVE -> chatGemini(provider, key, messages, maxTokens)
+            ApiStyle.OPENAI -> chatOpenAiStyle(provider, key, messages, maxTokens)
         }
     }
 
-    private fun extractContent(body: String): String {
+    /** Google AI Studio / Gemini native API */
+    private fun chatGemini(
+        provider: Provider,
+        key: String,
+        messages: JSONArray,
+        maxTokens: Int
+    ): String {
+        val contents = JSONArray()
+        var systemText = ""
+        for (i in 0 until messages.length()) {
+            val m = messages.getJSONObject(i)
+            val role = m.optString("role")
+            val content = m.optString("content")
+            when (role) {
+                "system" -> systemText = content
+                "user" -> contents.put(
+                    JSONObject()
+                        .put("role", "user")
+                        .put("parts", JSONArray().put(JSONObject().put("text", content)))
+                )
+                "assistant" -> contents.put(
+                    JSONObject()
+                        .put("role", "model")
+                        .put("parts", JSONArray().put(JSONObject().put("text", content)))
+                )
+            }
+        }
+        if (contents.length() == 0) {
+            return "Nothing to send to Gemini."
+        }
+
+        var lastError = ""
+        for (model in provider.models) {
+            val body = JSONObject()
+                .put("contents", contents)
+                .put(
+                    "generationConfig",
+                    JSONObject()
+                        .put("maxOutputTokens", maxTokens)
+                        .put("temperature", 0.4)
+                )
+            if (systemText.isNotBlank()) {
+                body.put(
+                    "systemInstruction",
+                    JSONObject().put(
+                        "parts",
+                        JSONArray().put(JSONObject().put("text", systemText))
+                    )
+                )
+            }
+
+            val url = "${provider.baseUrl}/models/$model:generateContent?key=${java.net.URLEncoder.encode(key, "UTF-8")}"
+            val request = Request.Builder()
+                .url(url)
+                .addHeader("Content-Type", "application/json")
+                .post(body.toString().toRequestBody(jsonMedia))
+                .build()
+
+            try {
+                client.newCall(request).execute().use { response ->
+                    val raw = response.body?.string().orEmpty()
+                    if (response.isSuccessful) {
+                        return extractGemini(raw)
+                    }
+                    lastError = geminiError(response.code, raw, model)
+                    // Try next model on 404 / model not found
+                    if (response.code == 404 || raw.contains("NOT_FOUND", true)) continue
+                    if (response.code == 400 && raw.contains("API key", true)) {
+                        return "Gemini rejected the API key. Get a free key at aistudio.google.com/apikey and paste it under Gemini in Settings."
+                    }
+                    if (response.code == 429) {
+                        return "Gemini rate limit. Wait a minute or try Groq as a second free key."
+                    }
+                }
+            } catch (e: Exception) {
+                lastError = "Could not reach Gemini: ${e.message}"
+            }
+        }
+        return lastError.ifEmpty { "Gemini failed for all models." }
+    }
+
+    private fun geminiError(code: Int, raw: String, model: String): String {
+        return when (code) {
+            401, 403 -> "Gemini key invalid or blocked. Create a new key in Google AI Studio."
+            429 -> "Gemini rate limit on $model."
+            else -> "Gemini ($model) error $code: ${raw.take(200)}"
+        }
+    }
+
+    private fun extractGemini(body: String): String {
+        return try {
+            val json = JSONObject(body)
+            val candidates = json.optJSONArray("candidates") ?: return "Empty Gemini response."
+            if (candidates.length() == 0) return "Empty Gemini response."
+            val content = candidates.getJSONObject(0).optJSONObject("content")
+            val parts = content?.optJSONArray("parts")
+            if (parts == null || parts.length() == 0) return "(no content)"
+            parts.getJSONObject(0).optString("text", "").trim().ifEmpty { "(no content)" }
+        } catch (_: Exception) {
+            "Failed to parse Gemini response."
+        }
+    }
+
+    /** OpenAI-compatible: Groq / OpenRouter / DeepSeek */
+    private fun chatOpenAiStyle(
+        provider: Provider,
+        key: String,
+        messages: JSONArray,
+        maxTokens: Int
+    ): String {
+        var lastError = ""
+        for (model in provider.models) {
+            val body = JSONObject()
+                .put("model", model)
+                .put("messages", messages)
+                .put("max_tokens", maxTokens)
+                .put("temperature", 0.4)
+
+            val builder = Request.Builder()
+                .url("${provider.baseUrl}/chat/completions")
+                .addHeader("Authorization", "Bearer $key")
+                .addHeader("Content-Type", "application/json")
+                .post(body.toString().toRequestBody(jsonMedia))
+
+            // OpenRouter requires these headers
+            if (provider.id == "openrouter") {
+                builder.addHeader("HTTP-Referer", "https://github.com/Kingijimzy/jimi")
+                builder.addHeader("X-Title", "Jimi")
+            }
+
+            try {
+                client.newCall(builder.build()).execute().use { response ->
+                    val raw = response.body?.string().orEmpty()
+                    if (response.isSuccessful) {
+                        return extractOpenAi(raw)
+                    }
+                    lastError = when (response.code) {
+                        401, 403 -> "${provider.name} rejected the key. Check Settings."
+                        402 -> "${provider.name} wants payment for model $model. Trying another free model..."
+                        429 -> "${provider.name} rate limit. Wait or use another provider."
+                        else -> "${provider.name} ($model) error ${response.code}: ${raw.take(180)}"
+                    }
+                    // On payment / model issues try next free model
+                    if (response.code == 402 || response.code == 404) continue
+                    if (response.code == 400 && raw.contains("model", true)) continue
+                }
+            } catch (e: Exception) {
+                lastError = "Could not reach ${provider.name}: ${e.message}"
+            }
+        }
+        return if (provider.id == "openrouter") {
+            "OpenRouter free models unavailable right now ($lastError). Add a Gemini or Groq key instead — both have solid free tiers."
+        } else {
+            lastError.ifEmpty { "${provider.name} failed." }
+        }
+    }
+
+    private fun extractOpenAi(body: String): String {
         return try {
             val json = JSONObject(body)
             val choices = json.optJSONArray("choices") ?: return "Empty response from model."
@@ -123,7 +298,7 @@ class ModelRouter(private val context: Context) {
             val message = choices.getJSONObject(0).optJSONObject("message")
             message?.optString("content", "")?.trim()?.ifEmpty { "(no content)" }
                 ?: "(no content)"
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             "Failed to parse model response."
         }
     }
