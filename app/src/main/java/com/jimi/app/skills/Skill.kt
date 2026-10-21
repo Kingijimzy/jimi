@@ -2,13 +2,12 @@ package com.jimi.app.skills
 
 /**
  * A Skill is a reusable capability that Jimi can learn, improve, and call.
- * Skills can be built-in or AI-generated from examples.
  */
 data class Skill(
     val id: String,
     val name: String,
     val description: String,
-    val category: String,          // e.g. "phone", "browser", "research", "game", "network", "coding"
+    val category: String,
     val version: Int = 1,
     val isAiGenerated: Boolean = false,
     val triggerPhrases: List<String> = emptyList(),
@@ -23,50 +22,54 @@ data class SkillStep(
     val description: String = ""
 )
 
-/**
- * Registry of all skills (built-in + learned).
- * Later this will support saving/loading AI-generated skills.
- */
 object SkillRegistry {
 
     private val skills = mutableListOf<Skill>()
 
     init {
-        // Built-in starter skills
         register(
             Skill(
                 id = "game_sentinel",
                 name = "Game Sentinel",
-                description = "Monitor and help with games: detect screen state, suggest moves, or automate simple actions.",
+                description = "Help with games like FC Mobile: open game, macros, daily rewards.",
                 category = "game",
-                triggerPhrases = listOf("game help", "play this game", "watch the game", "game sentinel")
+                triggerPhrases = listOf("game help", "play this game", "game sentinel", "fc mobile")
             )
         )
         register(
             Skill(
                 id = "network_radar",
                 name = "Network Radar",
-                description = "Check network status, speed, diagnose connection issues, and report signal quality.",
+                description = "Check network status and connection quality.",
                 category = "network",
-                triggerPhrases = listOf("network", "wifi status", "internet speed", "connection", "network radar")
+                triggerPhrases = listOf("network", "wifi status", "network radar")
             )
         )
         register(
             Skill(
                 id = "research_agent",
                 name = "Research Agent",
-                description = "Search the web, read pages, summarize information, and answer research questions.",
+                description = "Search the web and open research results.",
                 category = "research",
-                triggerPhrases = listOf("research", "search for", "look up", "find information", "what is")
+                triggerPhrases = listOf("research", "look up", "find information")
             )
         )
         register(
             Skill(
                 id = "coding_assistant",
                 name = "Coding Assistant",
-                description = "Help write, explain, debug, and improve code. Can work with GitHub later.",
+                description = "Code help and GitHub search.",
                 category = "coding",
-                triggerPhrases = listOf("code", "write code", "debug", "programming", "github")
+                triggerPhrases = listOf("code help", "coding", "github")
+            )
+        )
+        register(
+            Skill(
+                id = "browser_automation",
+                name = "Browser Automation",
+                description = "Open YouTube, Gmail, Chrome, URLs, and scroll pages when Accessibility is on.",
+                category = "browser",
+                triggerPhrases = listOf("youtube", "gmail", "browser", "scroll")
             )
         )
     }
