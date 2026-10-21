@@ -11,10 +11,13 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
@@ -28,17 +31,21 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import com.jimi.app.agent.Agent
 import com.jimi.app.agent.ModelRouter
 import com.jimi.app.agent.OrbStateManager
 import com.jimi.app.agent.PendingAction
 import com.jimi.app.agent.PendingActionBus
 import com.jimi.app.prefs.AppPrefs
+import com.jimi.app.tools.ScreenTools
 import com.jimi.app.ui.ConfirmDialog
 import com.jimi.app.ui.JimiOrb
 import com.jimi.app.ui.OnboardingCard
@@ -81,12 +88,44 @@ fun JimiApp() {
 fun JimiScreen(onOpenSettings: () -> Unit) {
     val context = LocalContext.current
     val appPrefs = remember { AppPrefs(context) }
+    val router = remember { ModelRouter(context) }
+
     var inputText by remember { mutableStateOf("") }
-    var messages by remember { mutableStateOf(listOf<ChatMessage>()) }
+    var messages by remember {
+        mutableStateOf(
+            listOf(
+                ChatMessage(
+                    text = "I am Jimi — not only chat. I can control this phone.\n\n" +
+                            "Try now (no API needed):\n" +
+                            "• time / battery / flashlight on\n" +
+                            "• open WhatsApp / open Chrome\n" +
+                            "• volume up / wifi settings\n" +
+                            "• network status\n\n" +
+                            "For full screen control (tap, FC Mobile macros, teach-a-task):\n" +
+                            "Enable Accessibility for Jimi, then say: read screen or run macro fc daily.",
+                    isUser = false
+                )
+            )
+        )
+    }
     var statusText by remember { mutableStateOf("Ready") }
     var pending by remember { mutableStateOf<PendingAction?>(null) }
     var showOnboarding by remember { mutableStateOf(!appPrefs.onboardingDismissed) }
+    var a11yOn by remember { mutableStateOf(ScreenTools.isReady()) }
+    var hasApiKey by remember { mutableStateOf(router.availableProviders().isNotEmpty()) }
     val listState = rememberLazyListState()
+
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                a11yOn = ScreenTools.isReady()
+                hasApiKey = router.availableProviders().isNotEmpty()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
 
     val orbState by OrbStateManager.state.collectAsState()
     val isBusy = orbState != OrbState.IDLE
@@ -203,6 +242,19 @@ fun JimiScreen(onOpenSettings: () -> Unit) {
         )
     }
 
+    val quickActions = listOf(
+        "time" to "Time",
+        "battery" to "Battery",
+        "flashlight on" to "Torch",
+        "volume up" to "Vol+",
+        "network status" to "Network",
+        "open Chrome" to "Chrome",
+        "wifi settings" to "Wi‑Fi",
+        "read screen" to "Screen",
+        "list macros" to "Macros",
+        "help" to "Help"
+    )
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -242,6 +294,26 @@ fun JimiScreen(onOpenSettings: () -> Unit) {
             }
         }
 
+        // Capability strip
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp)
+                .padding(bottom = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            StatusChip(
+                label = if (a11yOn) "Control ON" else "Control OFF",
+                ok = a11yOn,
+                onClick = { if (!a11yOn) openAccessibility() }
+            )
+            StatusChip(
+                label = if (hasApiKey) "AI ready" else "Add API key",
+                ok = hasApiKey,
+                onClick = { if (!hasApiKey) onOpenSettings() }
+            )
+        }
+
         if (showOnboarding) {
             OnboardingCard(
                 onOpenSettings = onOpenSettings,
@@ -256,7 +328,7 @@ fun JimiScreen(onOpenSettings: () -> Unit) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .weight(0.40f),
+                .weight(0.32f),
             contentAlignment = Alignment.Center
         ) {
             JimiOrb(state = orbState)
@@ -265,7 +337,7 @@ fun JimiScreen(onOpenSettings: () -> Unit) {
         LazyColumn(
             state = listState,
             modifier = Modifier
-                .weight(0.43f)
+                .weight(0.40f)
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
@@ -273,10 +345,34 @@ fun JimiScreen(onOpenSettings: () -> Unit) {
             items(messages) { MessageBubble(it) }
         }
 
+        // Quick action chips — prove device control without typing
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(16.dp)
+                .horizontalScroll(rememberScrollState())
+                .padding(horizontal = 12.dp, vertical = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            quickActions.forEach { (cmd, label) ->
+                Surface(
+                    shape = RoundedCornerShape(20.dp),
+                    color = JimiCard,
+                    modifier = Modifier.clickable(enabled = !isBusy) { submit(cmd) }
+                ) {
+                    Text(
+                        text = label,
+                        color = JimiPrimary,
+                        fontSize = 12.sp,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                    )
+                }
+            }
+        }
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 10.dp)
                 .background(JimiCard, RoundedCornerShape(28.dp))
                 .padding(horizontal = 8.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically
@@ -295,7 +391,7 @@ fun JimiScreen(onOpenSettings: () -> Unit) {
                 cursorBrush = SolidColor(JimiPrimary),
                 decorationBox = { inner ->
                     if (inputText.isEmpty()) {
-                        Text("Talk to Jimi...", color = JimiTextDim, fontSize = 16.sp)
+                        Text("Command or ask Jimi...", color = JimiTextDim, fontSize = 16.sp)
                     }
                     inner()
                 }
@@ -309,6 +405,23 @@ fun JimiScreen(onOpenSettings: () -> Unit) {
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun StatusChip(label: String, ok: Boolean, onClick: () -> Unit) {
+    Surface(
+        shape = RoundedCornerShape(12.dp),
+        color = if (ok) JimiAccent.copy(alpha = 0.15f) else JimiError.copy(alpha = 0.15f),
+        modifier = Modifier.clickable(onClick = onClick)
+    ) {
+        Text(
+            text = label,
+            color = if (ok) JimiAccent else JimiError,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Medium,
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+        )
     }
 }
 
