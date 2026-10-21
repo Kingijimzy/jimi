@@ -34,7 +34,6 @@ class Agent(
     private val researchAgent = ResearchAgent(context)
     private val codingAssistant = CodingAssistant(context)
     private val macroRunner = MacroRunner(context)
-    private val teachMode = TeachMode(context)
     private val tools = ToolRegistry(context)
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
@@ -42,6 +41,7 @@ class Agent(
     private var stopped = false
 
     init {
+        TeachMode.bind(context)
         macroRunner.seedFcDailyExample(context)
     }
 
@@ -118,7 +118,7 @@ class Agent(
                 onMessage("Something went wrong: ${e.message}")
             } finally {
                 OrbStateManager.idle()
-                onStatus("Ready")
+                onStatus(if (TeachMode.isRecording()) TeachMode.status() else "Ready")
             }
         }
     }
@@ -139,19 +139,22 @@ class Agent(
                 lower.startsWith("teach ") -> original.substringAfter(" ").trim()
                 else -> "custom"
             }.ifEmpty { "custom" }
-            onMessage(teachMode.start(name))
+            onMessage(TeachMode.start(name))
+            onStatus(TeachMode.status())
             return true
         }
         if (lower in listOf("stop teaching", "finish teaching", "save teaching", "end teaching")) {
-            onMessage(teachMode.stopAndSave())
+            onMessage(TeachMode.stopAndSave())
+            onStatus("Ready")
             return true
         }
         if (lower == "cancel teaching") {
-            onMessage(teachMode.cancel())
+            onMessage(TeachMode.cancel())
+            onStatus("Ready")
             return true
         }
         if (lower == "teaching status") {
-            onMessage(teachMode.status())
+            onMessage(TeachMode.status())
             return true
         }
 
@@ -165,7 +168,6 @@ class Agent(
             onMessage(phoneTools.deviceInfo()); return true
         }
 
-        // Research
         val researchMatch = Regex("^(research|find information on|find info on) (.+)$").find(lower)
         if (researchMatch != null) {
             OrbStateManager.acting()
@@ -177,7 +179,6 @@ class Agent(
             return true
         }
 
-        // Coding
         if (lower in listOf("open github", "open git hub")) {
             OrbStateManager.acting()
             onMessage(codingAssistant.openGithub())
@@ -239,17 +240,17 @@ class Agent(
         }
 
         if (lower in listOf("go home", "home screen", "press home")) {
-            if (teachMode.isRecording()) teachMode.recordHome()
+            if (TeachMode.isRecording()) TeachMode.recordHome()
             OrbStateManager.acting(); onMessage(ScreenTools.goHome()); return true
         }
         if (lower in listOf("go back", "press back", "back")) {
-            if (teachMode.isRecording()) teachMode.recordBack()
+            if (TeachMode.isRecording()) TeachMode.recordBack()
             OrbStateManager.acting(); onMessage(ScreenTools.goBack()); return true
         }
         if (lower.startsWith("tap ") || lower.startsWith("click ")) {
             val text = original.substringAfter(" ").trim()
             if (text.isNotBlank()) {
-                if (teachMode.isRecording()) teachMode.recordClickText(text)
+                if (TeachMode.isRecording()) TeachMode.recordClickText(text)
                 OrbStateManager.acting(); onMessage(ScreenTools.clickText(text)); return true
             }
         }
@@ -278,7 +279,7 @@ class Agent(
         if (lower.contains("fc mobile") || lower.contains("fifa") || lower.contains("game sentinel") ||
             lower.contains("play fc") || lower.contains("open fc")) {
             if (lower.contains("open") || lower.contains("launch") || lower.contains("start") || lower.contains("play")) {
-                if (teachMode.isRecording()) teachMode.recordOpenApp("FC Mobile")
+                if (TeachMode.isRecording()) TeachMode.recordOpenApp("FC Mobile")
                 OrbStateManager.acting()
                 onMessage(gameSentinel.openGame("FC Mobile"))
                 return true
@@ -305,7 +306,7 @@ class Agent(
         if (openAppMatch != null) {
             val name = openAppMatch.groupValues[2].trim()
             if (!name.contains("settings") && !name.startsWith("macro") && name != "teaching" && name != "github") {
-                if (teachMode.isRecording()) teachMode.recordOpenApp(name)
+                if (TeachMode.isRecording()) TeachMode.recordOpenApp(name)
                 OrbStateManager.acting()
                 onMessage(phoneTools.openApp(name))
                 return true
@@ -403,7 +404,7 @@ ${tools.catalogForPrompt()}
 Time: ${phoneTools.currentTime()}
 Device: ${phoneTools.deviceInfo()}
 Screen control: ${if (ScreenTools.isReady()) "on" else "off"}
-Teaching: ${if (teachMode.isRecording()) teachMode.status() else "off"}
+Teaching: ${if (TeachMode.isRecording()) TeachMode.status() else "off"}
 
 Memory:
 ${memory.promptBlock()}
