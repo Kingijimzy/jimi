@@ -1,5 +1,8 @@
 package com.jimi.app.ui
 
+import android.content.Intent
+import android.net.Uri
+import android.provider.Settings
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -15,12 +18,16 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import com.jimi.app.agent.ModelRouter
 import com.jimi.app.prefs.AppPrefs
+import com.jimi.app.service.FloatingOrbService
 import com.jimi.app.skills.MacroStore
 import com.jimi.app.ui.theme.*
 
@@ -45,6 +52,20 @@ fun SettingsScreen(
     var ttsEnabled by remember { mutableStateOf(appPrefs.ttsEnabled) }
     var confirmSensitive by remember { mutableStateOf(appPrefs.confirmSensitive) }
     var macros by remember { mutableStateOf(MacroStore.list(context)) }
+    var orbOn by remember { mutableStateOf(FloatingOrbService.isRunning) }
+    var canOverlay by remember { mutableStateOf(FloatingOrbService.canDrawOverlays(context)) }
+
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val obs = LifecycleEventObserver { _, e ->
+            if (e == Lifecycle.Event.ON_RESUME) {
+                canOverlay = FloatingOrbService.canDrawOverlays(context)
+                orbOn = FloatingOrbService.isRunning
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(obs)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(obs) }
+    }
 
     Column(
         modifier = Modifier
@@ -60,11 +81,7 @@ fun SettingsScreen(
             verticalAlignment = Alignment.CenterVertically
         ) {
             IconButton(onClick = onBack) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = "Back",
-                    tint = JimiPrimary
-                )
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = JimiPrimary)
             }
             Text(
                 text = "Settings",
@@ -81,6 +98,40 @@ fun SettingsScreen(
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 20.dp)
         ) {
+            Text("Jarvis orb", color = JimiPrimary, fontSize = 14.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(bottom = 8.dp))
+            ToggleRow(
+                title = "Floating orb on screen",
+                checked = orbOn && canOverlay,
+                onCheckedChange = { enable ->
+                    if (enable) {
+                        if (!FloatingOrbService.canDrawOverlays(context)) {
+                            try {
+                                context.startActivity(
+                                    Intent(
+                                        Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                        Uri.parse("package:${context.packageName}")
+                                    ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                )
+                            } catch (_: Exception) {
+                            }
+                        } else {
+                            FloatingOrbService.start(context)
+                            orbOn = true
+                        }
+                    } else {
+                        FloatingOrbService.stop(context)
+                        orbOn = false
+                    }
+                }
+            )
+            Text(
+                text = if (canOverlay) "Tap orb anywhere to open Jimi. Drag to move."
+                else "Needs \"Display over other apps\" permission (tap toggle to open settings).",
+                color = JimiTextDim,
+                fontSize = 12.sp,
+                modifier = Modifier.padding(top = 4.dp, bottom = 16.dp)
+            )
+
             Text("Voice", color = JimiPrimary, fontSize = 14.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(bottom = 8.dp))
             ToggleRow(
                 title = "Speak replies (TTS)",
@@ -90,12 +141,8 @@ fun SettingsScreen(
                     appPrefs.ttsEnabled = it
                 }
             )
-            Text(
-                text = "Mic permission + Google speech. On Redmi: App info → Permissions → Microphone.",
-                color = JimiTextDim,
-                fontSize = 12.sp,
-                modifier = Modifier.padding(top = 4.dp, bottom = 16.dp)
-            )
+
+            Spacer(modifier = Modifier.height(16.dp))
 
             Text("Safety", color = JimiPrimary, fontSize = 14.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(bottom = 8.dp))
             ToggleRow(
@@ -138,13 +185,9 @@ fun SettingsScreen(
 
             Text("API Keys", color = JimiPrimary, fontSize = 14.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(bottom = 8.dp))
             Text(
-                text = "Recommended: Gemini from Google AI Studio\n" +
-                        "https://aistudio.google.com/apikey\n\n" +
-                        "Paste the key only (usually starts with AIza).\n" +
-                        "OpenRouter free quota runs out often — use Gemini or Groq.",
+                text = "Recommended: Gemini from Google AI Studio\nhttps://aistudio.google.com/apikey",
                 color = JimiTextDim,
                 fontSize = 13.sp,
-                lineHeight = 18.sp,
                 modifier = Modifier.padding(bottom = 16.dp)
             )
 
