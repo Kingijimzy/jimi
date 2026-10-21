@@ -8,6 +8,7 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -20,6 +21,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.jimi.app.agent.ModelRouter
 import com.jimi.app.prefs.AppPrefs
+import com.jimi.app.skills.MacroStore
 import com.jimi.app.ui.theme.*
 
 @Composable
@@ -42,6 +44,7 @@ fun SettingsScreen(
     }
     var ttsEnabled by remember { mutableStateOf(appPrefs.ttsEnabled) }
     var confirmSensitive by remember { mutableStateOf(appPrefs.confirmSensitive) }
+    var macros by remember { mutableStateOf(MacroStore.list(context)) }
 
     Column(
         modifier = Modifier
@@ -112,11 +115,57 @@ fun SettingsScreen(
                 }
             )
             Text(
-                text = "When on, dial and similar actions ask before running (expanding).",
+                text = "When on, dial asks before opening the phone app.",
                 color = JimiTextDim,
                 fontSize = 12.sp,
                 modifier = Modifier.padding(top = 4.dp, bottom = 16.dp)
             )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Text(
+                text = "Macros",
+                color = JimiPrimary,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Medium,
+                modifier = Modifier.padding(bottom = 8.dp)
+            )
+            if (macros.isEmpty()) {
+                Text(
+                    text = "No macros yet. Say: teach daily rewards", 
+                    color = JimiTextDim,
+                    fontSize = 13.sp,
+                    modifier = Modifier.padding(bottom = 12.dp)
+                )
+            } else {
+                macros.forEach { name ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 8.dp)
+                            .background(JimiCard, RoundedCornerShape(12.dp))
+                            .padding(horizontal = 14.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(name, color = JimiText, fontSize = 14.sp)
+                        IconButton(
+                            onClick = {
+                                MacroStore.delete(context, name)
+                                macros = MacroStore.list(context)
+                            }
+                        ) {
+                            Icon(Icons.Default.Delete, "Delete", tint = JimiError)
+                        }
+                    }
+                }
+                Text(
+                    text = "Run with: run macro <name>",
+                    color = JimiTextDim,
+                    fontSize = 12.sp,
+                    modifier = Modifier.padding(bottom = 16.dp)
+                )
+            }
 
             Spacer(modifier = Modifier.height(8.dp))
 
@@ -146,7 +195,17 @@ fun SettingsScreen(
                 Spacer(modifier = Modifier.height(14.dp))
             }
 
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(16.dp))
+
+            TextButton(
+                onClick = {
+                    appPrefs.onboardingDismissed = false
+                }
+            ) {
+                Text("Show setup checklist again", color = JimiPrimary, fontSize = 13.sp)
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
 
             Text(
                 text = "Tips",
@@ -157,9 +216,9 @@ fun SettingsScreen(
             )
             Text(
                 text = "• Groq and Gemini are the best free starting points.\n" +
-                        "• Enable Accessibility for screen control and FC Mobile macros.\n" +
+                        "• Enable Accessibility for screen control and FC Mobile.\n" +
                         "• Keys stay only on this device.\n" +
-                        "• See docs/SETUP.md in the repo.",
+                        "• On Redmi: lock Jimi in Recents + allow autostart.",
                 color = JimiTextDim,
                 fontSize = 13.sp,
                 lineHeight = 20.sp
