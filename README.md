@@ -1,7 +1,7 @@
 # Jimi
 
 **Your personal hybrid AI assistant for Android**  
-Local-first • Free APIs • Phone control • Browser automation • Evolving skills  
+Local-first • Free APIs • Phone control • Voice • Macros • Evolving skills  
 Built for a real Jarvis-like experience on your phone.
 
 **Repo:** https://github.com/Kingijimzy/jimi
@@ -12,43 +12,33 @@ Built for a real Jarvis-like experience on your phone.
 
 | Feature | Status |
 |---------|--------|
-| Beautiful animated Orb UI (6 states) | ✅ |
+| Animated Orb UI (idle / listening / thinking / speaking / acting / error) | ✅ |
 | Hybrid Model Router (Groq / Gemini / OpenRouter / DeepSeek) | ✅ |
-| Settings screen for API keys | ✅ |
-| Local commands (time, battery, open app, search, volume, flashlight...) | ✅ |
-| Memory ("remember ...") | ✅ |
-| Accessibility Service (tap, swipe, click text, type, read screen) | ✅ |
-| Game Sentinel (FC Mobile open + help) | ✅ |
-| Macros / teach-a-task (Grok Bot style) + sample `fc daily` | ✅ |
-| Network Radar (Wi‑Fi / mobile status) | ✅ |
-| Screen commands (go home, go back, tap text, read screen) | ✅ |
+| Real HTTP chat + tool-calling loop | ✅ |
+| Settings (API keys, TTS toggle, safety toggle) | ✅ |
+| Local commands (apps, search, volume, flashlight, dial...) | ✅ |
+| Memory + Tasks | ✅ |
+| Accessibility (tap, swipe, click text, type, read screen) | ✅ |
+| Game Sentinel (FC Mobile) | ✅ |
+| Macros + **TeachMode** (teach once, run forever) | ✅ |
+| Network Radar | ✅ |
+| Voice input (STT) + TTS speak | ✅ |
+| Stop button while busy | ✅ |
 
 ### Example commands
-- `Open FC Mobile`
-- `Run macro fc daily`
-- `Network status`
-- `Tap Claim`
-- `Go home` / `Go back`
-- `Read screen`
-- `Search for weather today`
-- `Remember my favorite team is Chelsea`
-- `Volume up` / `Flashlight on`
 
----
+```
+Open FC Mobile
+Run macro fc daily
+Teach daily rewards → open FC Mobile → tap Claim → stop teaching
+Network status
+Tap Claim
+Go home
+Add task buy data
+Remember my team is Chelsea
+```
 
-## Vision
-
-Practical evolving personal AI that can:
-
-- **Reason** about multi-step goals
-- **Act** on the phone (apps, screen, browser)
-- **Learn** skills (AI-Generated + macros)
-- **Connect** accounts later (Gmail, YouTube, GitHub)
-- **Code** and research
-- **Remember** with user control
-- Run well on lower-end devices (Redmi A3 Pro class)
-
-Upgrade path: free APIs now → DeepSeek / paid later with almost no code change.
+See [docs/COMMANDS.md](docs/COMMANDS.md) and [docs/SETUP.md](docs/SETUP.md).
 
 ---
 
@@ -56,34 +46,37 @@ Upgrade path: free APIs now → DeepSeek / paid later with almost no code change
 
 ```
 Jimi/
-├── Local Engine          (rules, macros)
-├── Agent Core            (reasoning)
-├── Model Router          (Local → Free → Paid)
-├── Tools
-│   ├── Phone + Screen control
-│   ├── Browser open / search
-│   ├── Skills (Game Sentinel, Network Radar, ...)
-│   └── Macros (teach once, run forever)
-├── Memory
-├── Orb UI
-└── Safety / confirmations
+├── Local Engine          rules + macros + teach mode
+├── Agent Core            reasoning + tool loop
+├── Model Router          Local → Free APIs → Paid
+├── Tools                 phone, screen, browser open
+├── Skills                Game Sentinel, Network Radar
+├── Memory & Tasks
+├── Voice                 STT + TTS
+└── Orb UI + Settings
 ```
+
+**Hybrid design:** everyday commands stay local (unlimited). Free APIs are used only when needed, with short context and limited tool steps so tasks finish before rate limits.
 
 ---
 
-## Setup (developer)
+## Setup
 
-1. Clone the repo
-2. Open in Android Studio
-3. Build & install on device
-4. Enable **Accessibility** for Jimi
-5. Open **Settings** in the app and paste a free API key (Groq or Gemini)
+1. Clone → open in **Android Studio**
+2. Build & install on device (Android 9+)
+3. Enable **Accessibility** for Jimi
+4. Allow **Microphone** for voice
+5. Settings → paste free API key (Groq or Gemini recommended)
+
+Target: real phones including **Redmi A3 Pro** (4 GB class).
 
 ---
 
 ## Status
 
-🚧 Active development. Core hybrid agent + phone control + FC Mobile macros are working.
+🚧 Active development. Core hybrid agent, phone control, voice, and FC Mobile macros are in place.
+
+**Next:** stronger confirmations for dial, richer teach capture, connectors (Gmail / YouTube / GitHub).
 
 ---
 
