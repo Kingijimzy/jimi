@@ -36,7 +36,7 @@ fun OnboardingCard(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = "Get Jimi ready",
+                text = "Unlock full Jimi",
                 color = JimiPrimary,
                 fontSize = 16.sp,
                 fontWeight = FontWeight.SemiBold
@@ -46,9 +46,12 @@ fun OnboardingCard(
             }
         }
         Text(
-            text = "1. Enable Accessibility for screen control & FC Mobile macros\n" +
+            text = "Without setup, Jimi still controls volume, apps, torch, time, battery.\n\n" +
+                    "For Jarvis-level control (tap screen, macros, FC Mobile):\n" +
+                    "1. Turn ON Accessibility for Jimi (required)\n" +
                     "2. Allow Microphone for voice\n" +
-                    "3. Add a free API key (Groq or Gemini) in Settings",
+                    "3. Add free Groq/Gemini key for smart chat\n\n" +
+                    "Tip: tap the chips under the chat (Time, Torch, Chrome...).",
             color = JimiTextDim,
             fontSize = 13.sp,
             lineHeight = 18.sp,
@@ -56,7 +59,7 @@ fun OnboardingCard(
         )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             TextButton(onClick = onOpenAccessibility) {
-                Text("Accessibility", color = JimiPrimary, fontSize = 13.sp)
+                Text("Enable control", color = JimiPrimary, fontSize = 13.sp)
             }
             TextButton(onClick = onOpenSettings) {
                 Text("API keys", color = JimiPrimary, fontSize = 13.sp)
