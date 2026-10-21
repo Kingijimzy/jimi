@@ -10,10 +10,15 @@
 | device info | Phone model |
 | open WhatsApp | Launch app |
 | search for ... | Google search |
+| research ... | Research Agent |
+| open github | Open GitHub |
+| search github for ... | GitHub search |
+| code help ... | Coding search |
+| list skills | Built-in skills |
 | open settings / wifi settings | System settings |
 | volume up / mute / set volume 50 | Media volume |
 | flashlight on/off | Torch |
-| call 0803... | Open dialer |
+| call 0803... | Dialer (confirm if safety on) |
 | remember ... | Save memory |
 | what do you remember | List memories |
 | network status | Network Radar |
@@ -34,41 +39,29 @@
 
 ## Voice
 
-- Tap **mic** → speak → same as typing a command
-- Replies can be spoken (TTS) — toggle in Settings
-- **Stop** button cancels agent + speech while busy
+- Tap **mic** → speak → same as typing
+- TTS replies (Settings toggle)
+- **Stop** cancels agent + speech
 
-## Teach-a-task (Grok Bot style)
+## Teach-a-task
 
 ```
 teach daily rewards
 open FC Mobile
 tap Claim
-tap Collect
 stop teaching
 ```
 
-Then later: `run macro daily rewards`
-
-While teaching, open app / tap / home / back are recorded automatically.
+Then: `run macro daily rewards`  
+Delete macros in **Settings → Macros**.
 
 ## AI + tools
 
-If a request is not matched locally, Jimi asks the free/paid model.
-The model may reply with:
+Unmatched requests use free/paid APIs with limited tool steps.
 
-```
-TOOL: open_app {"name":"Chrome"}
-TOOL: web_search {"query":"FC Mobile tips"}
-TOOL: click_text {"text":"Claim"}
-```
+## Setup
 
-Jimi runs the tool and can continue up to a few steps (protects free tier).
-
-## Setup tips
-
-1. Enable **Accessibility** for Jimi
-2. Allow **Microphone** for voice
-3. Add free API keys in **Settings** (Groq or Gemini first)
-4. For FC Mobile: Accessibility on, then `run macro fc daily`
-5. On MIUI/Redmi: lock app in Recents, allow autostart
+1. Enable Accessibility
+2. Allow Microphone
+3. Add free API key (Groq / Gemini)
+4. Redmi: lock in Recents + autostart
