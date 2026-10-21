@@ -7,12 +7,13 @@ import android.os.Build
 import android.os.Bundle
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
+import com.jimi.app.skills.TeachMode
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.resume
 
 /**
  * Full phone control via Accessibility.
- * Powers: phone control, browser automation, Game Sentinel, macros.
+ * Powers: phone control, browser automation, Game Sentinel, macros, teach capture.
  */
 class JimiAccessibilityService : AccessibilityService() {
 
@@ -27,9 +28,23 @@ class JimiAccessibilityService : AccessibilityService() {
     override fun onServiceConnected() {
         super.onServiceConnected()
         instance = this
+        TeachMode.bind(applicationContext)
     }
 
-    override fun onAccessibilityEvent(event: AccessibilityEvent?) {}
+    override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+        if (event == null || !TeachMode.isRecording()) return
+        if (event.eventType != AccessibilityEvent.TYPE_VIEW_CLICKED) return
+
+        val text = sequenceOf(
+            event.text?.joinToString(" ") { it.toString() },
+            event.contentDescription?.toString()
+        ).mapNotNull { it?.trim() }
+            .firstOrNull { it.isNotEmpty() }
+            ?: return
+
+        if (text.equals("Jimi", true) || text.length < 2) return
+        TeachMode.recordClickText(text)
+    }
 
     override fun onInterrupt() {}
 
@@ -40,13 +55,11 @@ class JimiAccessibilityService : AccessibilityService() {
 
     fun getRoot(): AccessibilityNodeInfo? = rootInActiveWindow
 
-    // ---------- Global actions ----------
     fun goHome() = performGlobalAction(GLOBAL_ACTION_HOME)
     fun goBack() = performGlobalAction(GLOBAL_ACTION_BACK)
     fun openRecents() = performGlobalAction(GLOBAL_ACTION_RECENTS)
     fun openNotifications() = performGlobalAction(GLOBAL_ACTION_NOTIFICATIONS)
 
-    // ---------- Gestures ----------
     suspend fun tap(x: Float, y: Float, durationMs: Long = 50): Boolean {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) return false
         val path = Path().apply { moveTo(x, y) }
@@ -83,7 +96,6 @@ class JimiAccessibilityService : AccessibilityService() {
             if (!ok && cont.isActive) cont.resume(false)
         }
 
-    // ---------- Node finding ----------
     fun findByText(text: String, exact: Boolean = false): AccessibilityNodeInfo? {
         val root = getRoot() ?: return null
         return findNodes(root) { node ->
