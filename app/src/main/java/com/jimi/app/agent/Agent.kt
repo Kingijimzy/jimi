@@ -8,6 +8,7 @@ import com.jimi.app.skills.GameSentinel
 import com.jimi.app.skills.MacroRunner
 import com.jimi.app.skills.MacroStore
 import com.jimi.app.skills.NetworkRadar
+import com.jimi.app.skills.ResearchAgent
 import com.jimi.app.skills.SkillRegistry
 import com.jimi.app.skills.TeachMode
 import com.jimi.app.tools.PhoneTools
@@ -29,6 +30,7 @@ class Agent(
     private val prefs = AppPrefs(context)
     private val gameSentinel = GameSentinel(context)
     private val networkRadar = NetworkRadar(context)
+    private val researchAgent = ResearchAgent(context)
     private val macroRunner = MacroRunner(context)
     private val teachMode = TeachMode(context)
     private val tools = ToolRegistry(context)
@@ -68,7 +70,9 @@ class Agent(
                 if (handleLocal(lower, userGoal)) return@launch
 
                 val skill = SkillRegistry.findByTrigger(lower)
-                if (skill != null) {
+                if (skill != null && skill.id == "research_agent") {
+                    // Handled below via research regex; keep soft notice only for other skills
+                } else if (skill != null) {
                     onMessage("Activating skill: ${skill.name}. ${skill.description}")
                 }
 
@@ -125,7 +129,7 @@ class Agent(
             return true
         }
         if (lower.contains("who are you") || lower.contains("what are you") || lower == "about") {
-            onMessage("I'm Jimi — hybrid AI on your phone. Device control, FC Mobile, teach-a-task macros, tasks, network, and more.")
+            onMessage("I'm Jimi — hybrid AI on your phone. Device control, FC Mobile, teach-a-task macros, research, tasks, network, and more.")
             return true
         }
 
@@ -159,6 +163,27 @@ class Agent(
         }
         if (lower.contains("device info") || lower == "about phone") {
             onMessage(phoneTools.deviceInfo()); return true
+        }
+
+        // Research
+        val researchMatch = Regex("^(research|look up|find information on|find info on) (.+)$").find(lower)
+        if (researchMatch != null) {
+            OrbStateManager.acting()
+            onMessage(researchAgent.research(researchMatch.groupValues[2].trim()))
+            return true
+        }
+        if (lower == "research help" || lower == "research agent") {
+            onMessage(researchAgent.help())
+            return true
+        }
+
+        // Skills list
+        if (lower in listOf("list skills", "my skills", "show skills", "skills")) {
+            val all = SkillRegistry.all()
+            onMessage(
+                "Skills:\n" + all.joinToString("\n") { "• ${it.name} — ${it.description.take(60)}" }
+            )
+            return true
         }
 
         if (lower.startsWith("add task ") || lower.startsWith("todo ") || lower.startsWith("remind me to ")) {
@@ -336,8 +361,8 @@ class Agent(
 
         if (lower == "help" || lower == "what can you do") {
             onMessage(
-                "I can open apps, search, network, screen control, FC Mobile, " +
-                "teach macros, tasks, memory, voice, and AI tools. Enable Accessibility for full control."
+                "I can open apps, research, network, screen control, FC Mobile, " +
+                "teach macros, tasks, memory, voice, and AI. Say: list skills. Enable Accessibility for full control."
             )
             return true
         }
