@@ -125,11 +125,36 @@ class Agent(
 
     private fun handleLocal(lower: String, original: String): Boolean {
         if (lower in listOf("hi", "hello", "hey", "hi jimi", "hello jimi", "hey jimi")) {
-            onMessage("Hello. I'm Jimi, your personal assistant. How can I help you today?")
+            onMessage(
+                "Hello. I'm Jimi — I control this phone, not only chat.\n" +
+                        "Tap chips below or say: demo, battery, open Chrome, flashlight on."
+            )
             return true
         }
         if (lower.contains("who are you") || lower.contains("what are you") || lower == "about") {
-            onMessage("I'm Jimi — hybrid AI on your phone. Device control, FC Mobile, macros, research, coding help, tasks, network, and more.")
+            onMessage(
+                "I'm Jimi — hybrid AI on your Android phone.\n" +
+                        "Device control, screen macros, FC Mobile, research, coding, tasks, network, voice.\n" +
+                        "Screen control: ${if (ScreenTools.isReady()) "ON" else "OFF — enable Accessibility"}."
+            )
+            return true
+        }
+
+        // Live demo of local control (no API)
+        if (lower in listOf("demo", "test", "show me", "prove it", "capabilities")) {
+            OrbStateManager.acting()
+            onStatus("Running demo...")
+            val lines = mutableListOf<String>()
+            lines += "Demo (local, no API):"
+            lines += "• ${phoneTools.currentTime()}"
+            lines += "• ${phoneTools.batteryStatus()}"
+            lines += "• ${phoneTools.deviceInfo()}"
+            lines += "• ${networkRadar.status()}"
+            lines += "• Volume: ${phoneTools.setVolume("up")}"
+            lines += "• Screen control: ${if (ScreenTools.isReady()) "ON" else "OFF — enable Accessibility for taps/macros"}"
+            lines += "• Macros: ${MacroStore.list(context).joinToString().ifEmpty { "none yet" }}"
+            lines += "Try chips: Torch, Chrome, Network. Or: teach daily rewards"
+            onMessage(lines.joinToString("\n"))
             return true
         }
 
@@ -384,8 +409,11 @@ class Agent(
 
         if (lower == "help" || lower == "what can you do") {
             onMessage(
-                "I can open apps, research, code/GitHub help, network, screen control, FC Mobile, " +
-                "teach macros, tasks, memory, voice, and AI. Say: list skills."
+                "Local (no API): time, battery, flashlight on/off, volume up, open Chrome, " +
+                        "wifi settings, network status, demo.\n" +
+                        "With Accessibility: read screen, tap Claim, go home, run macro fc daily, teach ...\n" +
+                        "With API key: smart chat + multi-step tools.\n" +
+                        "Say: list skills | list macros | demo"
             )
             return true
         }
