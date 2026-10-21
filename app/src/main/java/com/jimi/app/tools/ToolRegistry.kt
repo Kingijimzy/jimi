@@ -4,10 +4,6 @@ import android.content.Context
 import com.jimi.app.skills.NetworkRadar
 import org.json.JSONObject
 
-/**
- * Registry of tools the Agent can call.
- * Format is simple JSON so free models can follow it reliably.
- */
 class ToolRegistry(private val context: Context) {
 
     private val phone = PhoneTools(context)
@@ -23,8 +19,10 @@ Available tools (reply with a single line TOOL: name {json} when you need one):
 - web_search {"query":"..."}
 - open_settings {"page":"wifi|bluetooth|display|sound|battery|apps|location|accessibility|main"}
 - click_text {"text":"Claim"}
+- swipe {"direction":"up|down|left|right"}
 - go_home {}
 - go_back {}
+- read_screen {}
 - network_status {}
 - battery {}
 - time {}
@@ -74,8 +72,13 @@ Only use a tool when the user wants an action. Otherwise just answer.
                     if (t.isBlank()) ToolResult(false, "Missing text")
                     else ToolResult(true, ScreenTools.clickText(t))
                 }
+                "swipe" -> {
+                    val d = args.optString("direction", "down")
+                    ToolResult(true, ScreenTools.swipe(d))
+                }
                 "go_home" -> ToolResult(true, ScreenTools.goHome())
                 "go_back" -> ToolResult(true, ScreenTools.goBack())
+                "read_screen" -> ToolResult(true, ScreenTools.screenSummary())
                 "network_status" -> ToolResult(true, network.status())
                 "battery" -> ToolResult(true, phone.batteryStatus())
                 "time" -> ToolResult(true, phone.currentTime())
@@ -88,7 +91,6 @@ Only use a tool when the user wants an action. Otherwise just answer.
                     val pct = args.optInt("percent", 50)
                     ToolResult(true, phone.setVolume(action, pct))
                 }
-                "read_screen" -> ToolResult(true, ScreenTools.screenSummary())
                 else -> ToolResult(false, "Unknown tool: $name")
             }
         } catch (e: Exception) {
