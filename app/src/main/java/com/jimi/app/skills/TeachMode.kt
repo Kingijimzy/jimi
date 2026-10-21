@@ -36,7 +36,7 @@ object TeachMode {
     fun addStep(step: MacroStore.MacroStep): Boolean {
         val s = session ?: return false
         val last = s.steps.lastOrNull()
-        if (last != null && last.action == step.action && last.args == step.args) {
+        if (last != null && last.tool == step.tool && last.args == step.args) {
             return false
         }
         s.steps.add(step)
