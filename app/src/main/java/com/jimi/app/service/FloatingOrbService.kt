@@ -14,15 +14,17 @@ import android.provider.Settings
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
+import android.view.ViewOutlineProvider
 import android.view.WindowManager
+import android.graphics.Outline
 import android.widget.FrameLayout
 import androidx.core.app.NotificationCompat
 import com.jimi.app.MainActivity
-import com.jimi.app.R
+import kotlin.math.abs
 
 /**
  * Always-on floating orb (Jarvis style).
- * Tap opens Jimi. Drag to move. Requires overlay permission.
+ * Tap opens Jimi. Drag to move. Requires "Display over other apps" permission.
  */
 class FloatingOrbService : Service() {
 
@@ -34,9 +36,8 @@ class FloatingOrbService : Service() {
         var isRunning: Boolean = false
             private set
 
-        fun canDrawOverlays(context: Context): Boolean {
-            return Settings.canDrawOverlays(context)
-        }
+        fun canDrawOverlays(context: Context): Boolean =
+            Settings.canDrawOverlays(context)
 
         fun start(context: Context) {
             val i = Intent(context, FloatingOrbService::class.java)
@@ -54,7 +55,6 @@ class FloatingOrbService : Service() {
 
     private var windowManager: WindowManager? = null
     private var orbView: View? = null
-    private var params: WindowManager.LayoutParams? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -100,7 +100,7 @@ class FloatingOrbService : Service() {
         )
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("Jimi is active")
-            .setContentText("Floating orb on screen · tap notification to open")
+            .setContentText("Floating orb on screen · tap to open Jimi")
             .setSmallIcon(android.R.drawable.ic_btn_speak_now)
             .setContentIntent(open)
             .setOngoing(true)
@@ -114,28 +114,22 @@ class FloatingOrbService : Service() {
 
         val frame = FrameLayout(this).apply {
             setBackgroundColor(0xFF00D4FF.toInt())
-            // Soft circle look via outline
             clipToOutline = true
-            outlineProvider = object : android.view.ViewOutlineProvider() {
-                override fun getOutline(view: View, outline: android.graphics.Outline) {
+            outlineProvider = object : ViewOutlineProvider() {
+                override fun getOutline(view: View, outline: Outline) {
                     outline.setOval(0, 0, view.width, view.height)
                 }
             }
             alpha = 0.92f
         }
 
-        // Inner white core
+        val coreSize = size / 3
         val core = View(this).apply {
             setBackgroundColor(0xDDFFFFFF.toInt())
-            layoutParams = FrameLayout.LayoutParams(
-                size / 3, size / 3,
-                Gravity.CENTER
-            ).also {
-                // will apply circle after layout
-            }
+            layoutParams = FrameLayout.LayoutParams(coreSize, coreSize, Gravity.CENTER)
             clipToOutline = true
-            outlineProvider = object : android.view.ViewOutlineProvider() {
-                override fun getOutline(view: View, outline: android.graphics.Outline) {
+            outlineProvider = object : ViewOutlineProvider() {
+                override fun getOutline(view: View, outline: Outline) {
                     outline.setOval(0, 0, view.width, view.height)
                 }
             }
@@ -157,38 +151,32 @@ class FloatingOrbService : Service() {
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.START
-            x = resources.displayMetrics.widthPixels - size - 24
+            x = resources.displayMetrics.widthPixels - size - 48
             y = resources.displayMetrics.heightPixels / 3
         }
-        params = lp
 
-        var lastX = 0
-        var lastY = 0
-        var startX = 0
-        var startY = 0
+        var initialX = 0
+        var initialY = 0
+        var touchX = 0f
+        var touchY = 0f
         var moved = false
 
         frame.setOnTouchListener { _, event ->
             when (event.action) {
                 MotionEvent.ACTION_DOWN -> {
-                    lastX = event.rawX.toInt()
-                    lastY = event.rawY.toInt()
-                    startX = lp.x
-                    startY = lp.y
+                    initialX = lp.x
+                    initialY = lp.y
+                    touchX = event.rawX
+                    touchY = event.rawY
                     moved = false
                     true
                 }
                 MotionEvent.ACTION_MOVE -> {
-                    val dx = event.rawX.toInt() - lastX
-                    val dy = event.rawY.toInt() - lastY
-                    if (kotlin.math.abs(dx) > 4 || kotlin.math.abs(dy) > 4) moved = true
-                    lp.x = startX + (event.rawX.toInt() - lastX)
-                    // fix: track from start
-                    lp.x = startX + event.rawX.toInt() - lastX
-                    lp.y = startY + event.rawY.toInt() - lastY
-                    // Actually startX is initial; need accumulate from down position
-                    lp.x = startX + (event.rawX.toInt() - lastX)
-                    lp.y = startY + (event.rawY.toInt() - lastY)
+                    val dx = (event.rawX - touchX).toInt()
+                    val dy = (event.rawY - touchY).toInt()
+                    if (abs(dx) > 6 || abs(dy) > 6) moved = true
+                    lp.x = initialX + dx
+                    lp.y = initialY + dy
                     try {
                         windowManager?.updateViewLayout(frame, lp)
                     } catch (_: Exception) {
@@ -197,9 +185,10 @@ class FloatingOrbService : Service() {
                 }
                 MotionEvent.ACTION_UP -> {
                     if (!moved) {
-                        val intent = Intent(this, MainActivity::class.java)
-                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
-                        startActivity(intent)
+                        startActivity(
+                            Intent(this, MainActivity::class.java)
+                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                        )
                     }
                     true
                 }
@@ -210,7 +199,7 @@ class FloatingOrbService : Service() {
         try {
             windowManager?.addView(frame, lp)
             orbView = frame
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             stopSelf()
         }
     }
