@@ -4,6 +4,7 @@ import android.content.Context
 import com.jimi.app.memory.MemoryStore
 import com.jimi.app.memory.TaskStore
 import com.jimi.app.prefs.AppPrefs
+import com.jimi.app.skills.BrowserAutomation
 import com.jimi.app.skills.CodingAssistant
 import com.jimi.app.skills.GameSentinel
 import com.jimi.app.skills.MacroRunner
@@ -33,6 +34,7 @@ class Agent(
     private val networkRadar = NetworkRadar(context)
     private val researchAgent = ResearchAgent(context)
     private val codingAssistant = CodingAssistant(context)
+    private val browser = BrowserAutomation(context)
     private val macroRunner = MacroRunner(context)
     private val tools = ToolRegistry(context)
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
@@ -72,7 +74,7 @@ class Agent(
                 if (handleLocal(lower, userGoal)) return@launch
 
                 val skill = SkillRegistry.findByTrigger(lower)
-                if (skill != null && skill.id !in listOf("research_agent", "coding_assistant")) {
+                if (skill != null && skill.id !in listOf("research_agent", "coding_assistant", "browser_automation")) {
                     onMessage("Activating skill: ${skill.name}. ${skill.description}")
                 }
 
@@ -126,36 +128,68 @@ class Agent(
     private fun handleLocal(lower: String, original: String): Boolean {
         if (lower in listOf("hi", "hello", "hey", "hi jimi", "hello jimi", "hey jimi")) {
             onMessage(
-                "Hello. I'm Jimi — I control this phone, not only chat.\n" +
-                        "Tap chips below or say: demo, battery, open Chrome, flashlight on."
+                "Hello. I'm Jimi — phone control, browser, games, macros, and AI.\n" +
+                        "Try: demo | open YouTube | open Gmail | battery | teach daily rewards"
             )
             return true
         }
         if (lower.contains("who are you") || lower.contains("what are you") || lower == "about") {
             onMessage(
-                "I'm Jimi — hybrid AI on your Android phone.\n" +
-                        "Device control, screen macros, FC Mobile, research, coding, tasks, network, voice.\n" +
-                        "Screen control: ${if (ScreenTools.isReady()) "ON" else "OFF — enable Accessibility"}."
+                "I'm Jimi — hybrid Jarvis-style AI on Android.\n" +
+                        "Control: apps, volume, torch, screen taps, swipes, macros.\n" +
+                        "Skills: browser, research, coding, FC Mobile, network.\n" +
+                        "Screen: ${if (ScreenTools.isReady()) "ON" else "OFF — enable Accessibility"}."
             )
             return true
         }
 
-        // Live demo of local control (no API)
         if (lower in listOf("demo", "test", "show me", "prove it", "capabilities")) {
             OrbStateManager.acting()
             onStatus("Running demo...")
-            val lines = mutableListOf<String>()
-            lines += "Demo (local, no API):"
-            lines += "• ${phoneTools.currentTime()}"
-            lines += "• ${phoneTools.batteryStatus()}"
-            lines += "• ${phoneTools.deviceInfo()}"
-            lines += "• ${networkRadar.status()}"
-            lines += "• Volume: ${phoneTools.setVolume("up")}"
-            lines += "• Screen control: ${if (ScreenTools.isReady()) "ON" else "OFF — enable Accessibility for taps/macros"}"
-            lines += "• Macros: ${MacroStore.list(context).joinToString().ifEmpty { "none yet" }}"
-            lines += "Try chips: Torch, Chrome, Network. Or: teach daily rewards"
-            onMessage(lines.joinToString("\n"))
+            onMessage(
+                listOf(
+                    "Demo (local, no API):",
+                    "• ${phoneTools.currentTime()}",
+                    "• ${phoneTools.batteryStatus()}",
+                    "• ${phoneTools.deviceInfo()}",
+                    "• ${networkRadar.status()}",
+                    "• Volume: ${phoneTools.setVolume("up")}",
+                    "• Screen: ${if (ScreenTools.isReady()) "ON" else "OFF"}",
+                    "• Macros: ${MacroStore.list(context).joinToString().ifEmpty { "none" }}",
+                    "Try: open YouTube | open Gmail | scroll down | run macro fc daily"
+                ).joinToString("\n")
+            )
             return true
+        }
+
+        // Browser / connectors (local)
+        if (lower in listOf("open youtube", "youtube")) {
+            OrbStateManager.acting(); onMessage(browser.openYoutube()); return true
+        }
+        val ytSearch = Regex("^(search youtube for|youtube search|youtube for) (.+)$").find(lower)
+        if (ytSearch != null) {
+            OrbStateManager.acting()
+            onMessage(browser.openYoutube(ytSearch.groupValues[2].trim()))
+            return true
+        }
+        if (lower in listOf("open gmail", "gmail", "open email", "check email")) {
+            OrbStateManager.acting(); onMessage(browser.openGmail()); return true
+        }
+        if (lower in listOf("open chrome", "chrome")) {
+            OrbStateManager.acting(); onMessage(browser.openChrome()); return true
+        }
+        if (lower in listOf("scroll down", "swipe down", "page down")) {
+            OrbStateManager.acting(); onMessage(browser.scrollDown()); return true
+        }
+        if (lower in listOf("scroll up", "swipe up", "page up")) {
+            OrbStateManager.acting(); onMessage(browser.scrollUp()); return true
+        }
+        if (lower.startsWith("swipe ")) {
+            val dir = lower.removePrefix("swipe ").trim()
+            OrbStateManager.acting(); onMessage(ScreenTools.swipe(dir)); return true
+        }
+        if (lower == "browser help" || lower == "browser automation") {
+            onMessage(browser.help()); return true
         }
 
         if (lower.startsWith("teach ") || lower.startsWith("start teaching ") || lower == "start teaching") {
@@ -169,18 +203,13 @@ class Agent(
             return true
         }
         if (lower in listOf("stop teaching", "finish teaching", "save teaching", "end teaching")) {
-            onMessage(TeachMode.stopAndSave())
-            onStatus("Ready")
-            return true
+            onMessage(TeachMode.stopAndSave()); onStatus("Ready"); return true
         }
         if (lower == "cancel teaching") {
-            onMessage(TeachMode.cancel())
-            onStatus("Ready")
-            return true
+            onMessage(TeachMode.cancel()); onStatus("Ready"); return true
         }
         if (lower == "teaching status") {
-            onMessage(TeachMode.status())
-            return true
+            onMessage(TeachMode.status()); return true
         }
 
         if (lower == "time" || lower.contains("what time") || lower.contains("what's the time")) {
@@ -200,14 +229,11 @@ class Agent(
             return true
         }
         if (lower == "research help" || lower == "research agent") {
-            onMessage(researchAgent.help())
-            return true
+            onMessage(researchAgent.help()); return true
         }
 
         if (lower in listOf("open github", "open git hub")) {
-            OrbStateManager.acting()
-            onMessage(codingAssistant.openGithub())
-            return true
+            OrbStateManager.acting(); onMessage(codingAssistant.openGithub()); return true
         }
         val ghSearch = Regex("^(search github for|github search) (.+)$").find(lower)
         if (ghSearch != null) {
@@ -222,15 +248,13 @@ class Agent(
             return true
         }
         if (lower in listOf("coding assistant", "code help")) {
-            onMessage(codingAssistant.help())
-            return true
+            onMessage(codingAssistant.help()); return true
         }
 
         if (lower in listOf("list skills", "my skills", "show skills", "skills")) {
-            val all = SkillRegistry.all()
-            onMessage(
-                "Skills:\n" + all.joinToString("\n") { "• ${it.name} — ${it.description.take(60)}" }
-            )
+            onMessage("Skills:\n" + SkillRegistry.all().joinToString("\n") {
+                "• ${it.name} — ${it.description.take(70)}"
+            })
             return true
         }
 
@@ -316,7 +340,7 @@ class Agent(
         if (lower in listOf("list macros", "my macros", "show macros", "list routines")) {
             val names = MacroStore.list(context)
             onMessage(
-                if (names.isEmpty()) "No macros yet. Sample 'fc daily' is created on first launch. Or say: teach daily rewards"
+                if (names.isEmpty()) "No macros yet. Sample 'fc daily' on first launch. Or: teach daily rewards"
                 else "Your macros: " + names.joinToString(", ")
             )
             return true
@@ -330,7 +354,8 @@ class Agent(
         val openAppMatch = Regex("^(open|launch|start) (.+)$").find(lower)
         if (openAppMatch != null) {
             val name = openAppMatch.groupValues[2].trim()
-            if (!name.contains("settings") && !name.startsWith("macro") && name != "teaching" && name != "github") {
+            if (!name.contains("settings") && !name.startsWith("macro") &&
+                name !in listOf("teaching", "github", "youtube", "gmail", "chrome")) {
                 if (TeachMode.isRecording()) TeachMode.recordOpenApp(name)
                 OrbStateManager.acting()
                 onMessage(phoneTools.openApp(name))
@@ -409,11 +434,10 @@ class Agent(
 
         if (lower == "help" || lower == "what can you do") {
             onMessage(
-                "Local (no API): time, battery, flashlight on/off, volume up, open Chrome, " +
-                        "wifi settings, network status, demo.\n" +
-                        "With Accessibility: read screen, tap Claim, go home, run macro fc daily, teach ...\n" +
-                        "With API key: smart chat + multi-step tools.\n" +
-                        "Say: list skills | list macros | demo"
+                "Local: time, battery, torch, volume, open apps, YouTube, Gmail, Chrome, demo.\n" +
+                        "Accessibility: read screen, tap text, swipe, macros, teach-a-task, FC Mobile.\n" +
+                        "AI key: smart chat + multi-step tools.\n" +
+                        "Say: list skills"
             )
             return true
         }
