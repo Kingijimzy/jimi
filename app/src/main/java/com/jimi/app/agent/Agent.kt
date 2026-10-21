@@ -4,6 +4,7 @@ import android.content.Context
 import com.jimi.app.memory.MemoryStore
 import com.jimi.app.memory.TaskStore
 import com.jimi.app.prefs.AppPrefs
+import com.jimi.app.skills.CodingAssistant
 import com.jimi.app.skills.GameSentinel
 import com.jimi.app.skills.MacroRunner
 import com.jimi.app.skills.MacroStore
@@ -31,6 +32,7 @@ class Agent(
     private val gameSentinel = GameSentinel(context)
     private val networkRadar = NetworkRadar(context)
     private val researchAgent = ResearchAgent(context)
+    private val codingAssistant = CodingAssistant(context)
     private val macroRunner = MacroRunner(context)
     private val teachMode = TeachMode(context)
     private val tools = ToolRegistry(context)
@@ -70,9 +72,7 @@ class Agent(
                 if (handleLocal(lower, userGoal)) return@launch
 
                 val skill = SkillRegistry.findByTrigger(lower)
-                if (skill != null && skill.id == "research_agent") {
-                    // Handled below via research regex; keep soft notice only for other skills
-                } else if (skill != null) {
+                if (skill != null && skill.id !in listOf("research_agent", "coding_assistant")) {
                     onMessage("Activating skill: ${skill.name}. ${skill.description}")
                 }
 
@@ -129,7 +129,7 @@ class Agent(
             return true
         }
         if (lower.contains("who are you") || lower.contains("what are you") || lower == "about") {
-            onMessage("I'm Jimi — hybrid AI on your phone. Device control, FC Mobile, teach-a-task macros, research, tasks, network, and more.")
+            onMessage("I'm Jimi — hybrid AI on your phone. Device control, FC Mobile, macros, research, coding help, tasks, network, and more.")
             return true
         }
 
@@ -166,7 +166,7 @@ class Agent(
         }
 
         // Research
-        val researchMatch = Regex("^(research|look up|find information on|find info on) (.+)$").find(lower)
+        val researchMatch = Regex("^(research|find information on|find info on) (.+)$").find(lower)
         if (researchMatch != null) {
             OrbStateManager.acting()
             onMessage(researchAgent.research(researchMatch.groupValues[2].trim()))
@@ -177,7 +177,29 @@ class Agent(
             return true
         }
 
-        // Skills list
+        // Coding
+        if (lower in listOf("open github", "open git hub")) {
+            OrbStateManager.acting()
+            onMessage(codingAssistant.openGithub())
+            return true
+        }
+        val ghSearch = Regex("^(search github for|github search) (.+)$").find(lower)
+        if (ghSearch != null) {
+            OrbStateManager.acting()
+            onMessage(codingAssistant.searchGithub(ghSearch.groupValues[2].trim()))
+            return true
+        }
+        val codeHelp = Regex("^(code help|coding help|code) (.+)$").find(lower)
+        if (codeHelp != null) {
+            OrbStateManager.acting()
+            onMessage(codingAssistant.searchCodeTopic(codeHelp.groupValues[2].trim()))
+            return true
+        }
+        if (lower in listOf("coding assistant", "code help")) {
+            onMessage(codingAssistant.help())
+            return true
+        }
+
         if (lower in listOf("list skills", "my skills", "show skills", "skills")) {
             val all = SkillRegistry.all()
             onMessage(
@@ -282,7 +304,7 @@ class Agent(
         val openAppMatch = Regex("^(open|launch|start) (.+)$").find(lower)
         if (openAppMatch != null) {
             val name = openAppMatch.groupValues[2].trim()
-            if (!name.contains("settings") && !name.startsWith("macro") && name != "teaching") {
+            if (!name.contains("settings") && !name.startsWith("macro") && name != "teaching" && name != "github") {
                 if (teachMode.isRecording()) teachMode.recordOpenApp(name)
                 OrbStateManager.acting()
                 onMessage(phoneTools.openApp(name))
@@ -361,8 +383,8 @@ class Agent(
 
         if (lower == "help" || lower == "what can you do") {
             onMessage(
-                "I can open apps, research, network, screen control, FC Mobile, " +
-                "teach macros, tasks, memory, voice, and AI. Say: list skills. Enable Accessibility for full control."
+                "I can open apps, research, code/GitHub help, network, screen control, FC Mobile, " +
+                "teach macros, tasks, memory, voice, and AI. Say: list skills."
             )
             return true
         }
