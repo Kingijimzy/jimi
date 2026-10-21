@@ -34,7 +34,10 @@ import androidx.core.content.ContextCompat
 import com.jimi.app.agent.Agent
 import com.jimi.app.agent.ModelRouter
 import com.jimi.app.agent.OrbStateManager
+import com.jimi.app.agent.PendingAction
+import com.jimi.app.agent.PendingActionBus
 import com.jimi.app.prefs.AppPrefs
+import com.jimi.app.ui.ConfirmDialog
 import com.jimi.app.ui.JimiOrb
 import com.jimi.app.ui.OrbState
 import com.jimi.app.ui.SettingsScreen
@@ -78,6 +81,7 @@ fun JimiScreen(onOpenSettings: () -> Unit) {
     var inputText by remember { mutableStateOf("") }
     var messages by remember { mutableStateOf(listOf<ChatMessage>()) }
     var statusText by remember { mutableStateOf("Ready") }
+    var pending by remember { mutableStateOf<PendingAction?>(null) }
     val listState = rememberLazyListState()
 
     val orbState by OrbStateManager.state.collectAsState()
@@ -86,6 +90,11 @@ fun JimiScreen(onOpenSettings: () -> Unit) {
     val tts = remember { VoiceOutput(context) }
     DisposableEffect(Unit) {
         onDispose { tts.shutdown() }
+    }
+
+    DisposableEffect(Unit) {
+        PendingActionBus.setListener { pending = it }
+        onDispose { PendingActionBus.setListener { } }
     }
 
     val agent = remember {
@@ -148,6 +157,7 @@ fun JimiScreen(onOpenSettings: () -> Unit) {
         agent.stop()
         voice.stop()
         tts.stop()
+        PendingActionBus.cancel()
         OrbStateManager.idle()
         statusText = "Ready"
         messages = messages + ChatMessage("Stopped.", false)
@@ -155,6 +165,28 @@ fun JimiScreen(onOpenSettings: () -> Unit) {
 
     LaunchedEffect(messages.size) {
         if (messages.isNotEmpty()) listState.animateScrollToItem(messages.size - 1)
+    }
+
+    if (pending != null) {
+        ConfirmDialog(
+            title = pending!!.title,
+            message = pending!!.message,
+            onConfirm = {
+                val result = PendingActionBus.confirm()
+                if (result != null) {
+                    messages = messages + ChatMessage(result, false)
+                    if (appPrefs.ttsEnabled) tts.speak(result)
+                }
+                OrbStateManager.idle()
+                statusText = "Ready"
+            },
+            onDismiss = {
+                PendingActionBus.cancel()
+                messages = messages + ChatMessage("Cancelled.", false)
+                OrbStateManager.idle()
+                statusText = "Ready"
+            }
+        )
     }
 
     Column(
