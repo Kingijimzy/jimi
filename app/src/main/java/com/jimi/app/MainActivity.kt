@@ -45,6 +45,7 @@ import com.jimi.app.agent.OrbStateManager
 import com.jimi.app.agent.PendingAction
 import com.jimi.app.agent.PendingActionBus
 import com.jimi.app.prefs.AppPrefs
+import com.jimi.app.skills.LearnedSkillStore
 import com.jimi.app.tools.ScreenTools
 import com.jimi.app.ui.ConfirmDialog
 import com.jimi.app.ui.JimiOrb
@@ -58,6 +59,7 @@ import com.jimi.app.voice.VoiceOutput
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        LearnedSkillStore.loadIntoRegistry(applicationContext)
         enableEdgeToEdge()
         setContent {
             JimiTheme { JimiApp() }
@@ -95,14 +97,11 @@ fun JimiScreen(onOpenSettings: () -> Unit) {
         mutableStateOf(
             listOf(
                 ChatMessage(
-                    text = "I am Jimi — not only chat. I can control this phone.\n\n" +
-                            "Try now (no API needed):\n" +
-                            "• time / battery / flashlight on\n" +
-                            "• open WhatsApp / open Chrome\n" +
-                            "• volume up / wifi settings\n" +
-                            "• network status\n\n" +
-                            "For full screen control (tap, FC Mobile macros, teach-a-task):\n" +
-                            "Enable Accessibility for Jimi, then say: read screen or run macro fc daily.",
+                    text = "I am Jimi v0.3 — hybrid Jarvis on your phone.\n\n" +
+                            "Quick chips below work offline.\n" +
+                            "Say: show orb | open YouTube | open Gmail | demo\n" +
+                            "With Accessibility: run macro fc daily | teach ... | read screen\n" +
+                            "Add Gemini key in Settings for smart chat.",
                     isUser = false
                 )
             )
@@ -243,15 +242,18 @@ fun JimiScreen(onOpenSettings: () -> Unit) {
     }
 
     val quickActions = listOf(
+        "demo" to "Demo",
         "time" to "Time",
         "battery" to "Battery",
         "flashlight on" to "Torch",
-        "volume up" to "Vol+",
-        "network status" to "Network",
+        "open YouTube" to "YouTube",
+        "open Gmail" to "Gmail",
         "open Chrome" to "Chrome",
-        "wifi settings" to "Wi‑Fi",
+        "show orb" to "Orb",
+        "network status" to "Network",
+        "run macro fc daily" to "FC daily",
         "read screen" to "Screen",
-        "list macros" to "Macros",
+        "list skills" to "Skills",
         "help" to "Help"
     )
 
@@ -294,7 +296,6 @@ fun JimiScreen(onOpenSettings: () -> Unit) {
             }
         }
 
-        // Capability strip
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -345,7 +346,6 @@ fun JimiScreen(onOpenSettings: () -> Unit) {
             items(messages) { MessageBubble(it) }
         }
 
-        // Quick action chips — prove device control without typing
         Row(
             modifier = Modifier
                 .fillMaxWidth()
