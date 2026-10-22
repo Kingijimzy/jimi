@@ -7,7 +7,7 @@ import kotlinx.coroutines.delay
 
 /**
  * Executes saved macros (Grok Bot style teach-a-task).
- * Uses Accessibility for taps / text clicks when available.
+ * Successful runs are promoted into evolving learned skills.
  */
 class MacroRunner(private val context: Context) {
 
@@ -28,11 +28,19 @@ class MacroRunner(private val context: Context) {
             onProgress("Step ${index + 1}/${macro.steps.size}: ${step.tool}")
             val ok = executeStep(svc, step)
             if (!ok) {
+                val skillId = "learned_" + name.lowercase().replace(Regex("[^a-z0-9]+"), "_")
+                LearnedSkillStore.recordFail(context, skillId)
                 return "Macro stopped at step ${index + 1} (${step.tool}). Screen may have changed."
             }
             delay(step.delayMs.coerceIn(200, 5000))
         }
-        return "Macro \"${macro.name}\" finished successfully."
+
+        // Evolve: promote macro → learned skill + bump success count
+        val skill = LearnedSkillStore.fromMacro(context, name)
+        val extra = if (skill != null) {
+            " Skill \"${skill.name}\" v${skill.version} learned (success ${skill.successCount})."
+        } else ""
+        return "Macro \"${macro.name}\" finished successfully.$extra"
     }
 
     private suspend fun executeStep(
@@ -77,14 +85,10 @@ class MacroRunner(private val context: Context) {
                 delay(ms.coerceIn(100, 10000))
                 true
             }
-            else -> {
-                // Unknown tool — skip but don't fail hard
-                true
-            }
+            else -> true
         }
     }
 
-    /** Create a simple starter macro for FC Mobile style daily claim (user can refine). */
     fun seedFcDailyExample(context: Context) {
         if (MacroStore.find(context, "fc daily") != null) return
         MacroStore.save(
