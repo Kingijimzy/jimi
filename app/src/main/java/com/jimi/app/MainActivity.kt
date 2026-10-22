@@ -45,6 +45,7 @@ import com.jimi.app.agent.OrbStateManager
 import com.jimi.app.agent.PendingAction
 import com.jimi.app.agent.PendingActionBus
 import com.jimi.app.prefs.AppPrefs
+import com.jimi.app.service.FloatingOrbService
 import com.jimi.app.skills.LearnedSkillStore
 import com.jimi.app.tools.ScreenTools
 import com.jimi.app.ui.ConfirmDialog
@@ -55,14 +56,36 @@ import com.jimi.app.ui.SettingsScreen
 import com.jimi.app.ui.theme.*
 import com.jimi.app.voice.VoiceInput
 import com.jimi.app.voice.VoiceOutput
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
 
 class MainActivity : ComponentActivity() {
+
+    companion object {
+        /** Set when floating orb long-press requests voice. */
+        val pendingVoiceStart = MutableStateFlow(false)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         LearnedSkillStore.loadIntoRegistry(applicationContext)
+        handleOrbIntent(intent)
         enableEdgeToEdge()
         setContent {
             JimiTheme { JimiApp() }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleOrbIntent(intent)
+    }
+
+    private fun handleOrbIntent(intent: Intent?) {
+        if (intent?.getBooleanExtra(FloatingOrbService.EXTRA_START_VOICE, false) == true) {
+            pendingVoiceStart.value = true
+            intent.removeExtra(FloatingOrbService.EXTRA_START_VOICE)
         }
     }
 }
@@ -97,10 +120,10 @@ fun JimiScreen(onOpenSettings: () -> Unit) {
         mutableStateOf(
             listOf(
                 ChatMessage(
-                    text = "I am Jimi v0.3 — hybrid Jarvis on your phone.\n\n" +
-                            "Quick chips below work offline.\n" +
-                            "Say: show orb | open YouTube | open Gmail | demo\n" +
-                            "With Accessibility: run macro fc daily | teach ... | read screen\n" +
+                    text = "I am Jimi v0.3.1 — hybrid Jarvis on your phone.\n\n" +
+                            "Floating orb: tap to open · long-press for voice.\n" +
+                            "Chips work offline. Say: show orb | demo | open YouTube\n" +
+                            "Accessibility unlocks macros & screen control.\n" +
                             "Add Gemini key in Settings for smart chat.",
                     isUser = false
                 )
@@ -193,6 +216,16 @@ fun JimiScreen(onOpenSettings: () -> Unit) {
             context, Manifest.permission.RECORD_AUDIO
         ) == PackageManager.PERMISSION_GRANTED
         if (granted) voice.start() else micPermission.launch(Manifest.permission.RECORD_AUDIO)
+    }
+
+    // Long-press floating orb → open app + listen
+    val wantVoice by MainActivity.pendingVoiceStart.collectAsState()
+    LaunchedEffect(wantVoice) {
+        if (wantVoice) {
+            MainActivity.pendingVoiceStart.value = false
+            delay(450)
+            startVoice()
+        }
     }
 
     fun stopAll() {
