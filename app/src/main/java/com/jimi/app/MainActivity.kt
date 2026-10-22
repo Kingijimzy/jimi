@@ -41,6 +41,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
@@ -57,7 +59,6 @@ import com.jimi.app.skills.LearnedSkillStore
 import com.jimi.app.tools.ScreenTools
 import com.jimi.app.ui.ConfirmDialog
 import com.jimi.app.ui.JimiOrb
-import com.jimi.app.ui.OnboardingCard
 import com.jimi.app.ui.OrbState
 import com.jimi.app.ui.SettingsScreen
 import com.jimi.app.ui.theme.*
@@ -127,23 +128,15 @@ fun JimiScreen(onOpenSettings: () -> Unit) {
     }
 
     var inputText by remember { mutableStateOf("") }
-    var messages by remember {
-        mutableStateOf(
-            listOf(
-                ChatMessage(
-                    "I'm Jimi — your phone AI. Control apps, macros, screen, and research.\n" +
-                            "Try a suggestion below, or just talk to me.",
-                    false
-                )
-            )
-        )
-    }
+    var messages by remember { mutableStateOf(listOf<ChatMessage>()) }
     var statusText by remember { mutableStateOf("Ready") }
     var pending by remember { mutableStateOf<PendingAction?>(null) }
-    var showOnboarding by remember { mutableStateOf(!appPrefs.onboardingDismissed) }
     var a11yOn by remember { mutableStateOf(ScreenTools.isReady()) }
     var hasApiKey by remember { mutableStateOf(router.availableProviders().isNotEmpty()) }
     val listState = rememberLazyListState()
+
+    // Home = companion landing; Chat = after first real message
+    val isHome = messages.none { it.isUser }
 
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
@@ -275,17 +268,6 @@ fun JimiScreen(onOpenSettings: () -> Unit) {
         )
     }
 
-    val suggestions = listOf(
-        "demo" to "Demo",
-        "open YouTube" to "YouTube",
-        "open Gmail" to "Gmail",
-        "battery" to "Battery",
-        "show orb" to "Orb",
-        "run macro fc daily" to "FC daily",
-        "read screen" to "Screen",
-        "network status" to "Network"
-    )
-
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -293,25 +275,29 @@ fun JimiScreen(onOpenSettings: () -> Unit) {
             .statusBarsPadding()
             .navigationBarsPadding()
     ) {
-        // Top bar — ChatAI style
+        // ── Top bar ──
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = 14.dp),
+                .padding(horizontal = 20.dp, vertical = 12.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Column {
-                Text(
-                    text = "$greeting",
-                    color = JimiText,
-                    fontSize = 22.sp,
-                    fontWeight = FontWeight.SemiBold
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .size(10.dp)
+                        .clip(CircleShape)
+                        .background(
+                            Brush.linearGradient(listOf(JimiPrimary, JimiSecondary))
+                        )
                 )
+                Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = if (isBusy) statusText else "How can Jimi help you?",
-                    color = JimiTextDim,
-                    fontSize = 13.sp
+                    "Jimi",
+                    color = JimiText,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.SemiBold
                 )
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -326,186 +312,263 @@ fun JimiScreen(onOpenSettings: () -> Unit) {
             }
         }
 
-        // Status row
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 20.dp)
-                .padding(bottom = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            StatusDot(
-                label = if (a11yOn) "Control" else "Control off",
-                ok = a11yOn,
-                onClick = { if (!a11yOn) openAccessibility() }
-            )
-            StatusDot(
-                label = if (hasApiKey) "AI" else "Add key",
-                ok = hasApiKey,
-                onClick = { if (!hasApiKey) onOpenSettings() }
+        // Thin setup strip (never covers orb)
+        if (!a11yOn || !hasApiKey) {
+            SetupStrip(
+                a11yOn = a11yOn,
+                hasApiKey = hasApiKey,
+                onControl = { openAccessibility() },
+                onApi = onOpenSettings
             )
         }
 
-        if (showOnboarding) {
-            OnboardingCard(
-                onOpenSettings = onOpenSettings,
-                onOpenAccessibility = { openAccessibility() },
-                onDismiss = {
-                    appPrefs.onboardingDismissed = true
-                    showOnboarding = false
-                }
-            )
-        }
-
-        // Compact hero orb
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(160.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            // Soft glow backdrop
-            Box(
-                modifier = Modifier
-                    .size(140.dp)
-                    .background(
-                        Brush.radialGradient(
-                            listOf(JimiPrimary.copy(alpha = 0.15f), Color.Transparent)
-                        ),
-                        CircleShape
-                    )
-            )
-            JimiOrb(
-                state = orbState,
-                size = 140.dp,
-                modifier = Modifier.clickable { startVoice() }
-            )
-        }
-
-        // Suggestion chips
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .horizontalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp, vertical = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            suggestions.forEach { (cmd, label) ->
-                SuggestionChip(
-                    label = label,
-                    enabled = !isBusy,
-                    onClick = { submit(cmd) }
-                )
-            }
-        }
-
-        // Chat — Jarvis / Lumen style
-        LazyColumn(
-            state = listState,
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-            contentPadding = PaddingValues(vertical = 8.dp)
-        ) {
-            items(messages) { msg ->
-                if (msg.isUser) UserBubble(msg.text) else AiBubble(msg.text)
-            }
-        }
-
-        // Glass composer
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 12.dp)
-                .border(
-                    1.dp,
-                    Brush.horizontalGradient(
-                        listOf(
-                            JimiPrimary.copy(alpha = 0.35f),
-                            JimiSecondary.copy(alpha = 0.25f)
-                        )
-                    ),
-                    RoundedCornerShape(28.dp)
-                )
-                .background(JimiCard, RoundedCornerShape(28.dp))
-                .padding(horizontal = 6.dp, vertical = 4.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            IconButton(onClick = { startVoice() }) {
-                Box(
-                    modifier = Modifier
-                        .size(40.dp)
-                        .clip(CircleShape)
-                        .background(
-                            Brush.linearGradient(
-                                listOf(JimiPrimary.copy(alpha = 0.25f), JimiSecondary.copy(alpha = 0.2f))
-                            )
-                        ),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(Icons.Default.Mic, "Voice", tint = JimiPrimary)
-                }
-            }
-            BasicTextField(
-                value = inputText,
-                onValueChange = { inputText = it },
+        if (isHome) {
+            // ════════ HOME — companion landing ════════
+            Column(
                 modifier = Modifier
                     .weight(1f)
-                    .padding(horizontal = 8.dp),
-                textStyle = TextStyle(color = JimiText, fontSize = 15.sp),
-                cursorBrush = SolidColor(JimiPrimary),
-                decorationBox = { inner ->
-                    if (inputText.isEmpty()) {
-                        Text("Message Jimi…", color = JimiTextDim, fontSize = 15.sp)
-                    }
-                    inner()
-                }
-            )
-            IconButton(onClick = { submit(inputText) }) {
-                Box(
-                    modifier = Modifier
-                        .size(40.dp)
-                        .clip(CircleShape)
-                        .background(
-                            if (inputText.isNotBlank())
-                                Brush.linearGradient(listOf(JimiPrimary, JimiSecondary))
-                            else
-                                Brush.linearGradient(listOf(JimiCardElevated, JimiCardElevated))
-                        ),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        Icons.Default.Send,
-                        "Send",
-                        tint = if (inputText.isNotBlank()) Color.Black else JimiTextDim,
-                        modifier = Modifier.size(18.dp)
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Large orb
+                Box(contentAlignment = Alignment.Center) {
+                    Box(
+                        modifier = Modifier
+                            .size(220.dp)
+                            .background(
+                                Brush.radialGradient(
+                                    listOf(
+                                        JimiPrimary.copy(alpha = 0.18f),
+                                        JimiSecondary.copy(alpha = 0.06f),
+                                        Color.Transparent
+                                    )
+                                ),
+                                CircleShape
+                            )
+                    )
+                    JimiOrb(
+                        state = orbState,
+                        size = 200.dp,
+                        modifier = Modifier.clickable { startVoice() }
                     )
                 }
+
+                Spacer(modifier = Modifier.height(20.dp))
+
+                Text(
+                    greeting,
+                    color = JimiText,
+                    fontSize = 26.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    if (isBusy) statusText else "Your personal phone companion.\nTap the orb to speak.",
+                    color = JimiTextDim,
+                    fontSize = 14.sp,
+                    textAlign = TextAlign.Center,
+                    lineHeight = 20.sp
+                )
+
+                Spacer(modifier = Modifier.height(28.dp))
+
+                // 2×2 companion actions
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    HomeCard(
+                        title = "Control",
+                        subtitle = "Torch, volume, apps",
+                        modifier = Modifier.weight(1f),
+                        onClick = { submit("demo") }
+                    )
+                    HomeCard(
+                        title = "Browse",
+                        subtitle = "YouTube, Gmail",
+                        modifier = Modifier.weight(1f),
+                        onClick = { submit("open YouTube") }
+                    )
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    HomeCard(
+                        title = "Play",
+                        subtitle = "FC Mobile macro",
+                        modifier = Modifier.weight(1f),
+                        onClick = { submit("run macro fc daily") }
+                    )
+                    HomeCard(
+                        title = "Orb",
+                        subtitle = "Always on top",
+                        modifier = Modifier.weight(1f),
+                        onClick = { submit("show orb") }
+                    )
+                }
+
+                Spacer(modifier = Modifier.weight(1f))
             }
+        } else {
+            // ════════ CHAT — conversation mode ════════
+            // Mini orb + status
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                JimiOrb(
+                    state = orbState,
+                    size = 48.dp,
+                    modifier = Modifier.clickable { startVoice() }
+                )
+                Spacer(modifier = Modifier.width(12.dp))
+                Text(
+                    if (isBusy) statusText else "Listening for you…",
+                    color = JimiTextDim,
+                    fontSize = 13.sp
+                )
+            }
+
+            // Quick chips
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                listOf(
+                    "demo" to "Demo",
+                    "battery" to "Battery",
+                    "open YouTube" to "YouTube",
+                    "open Gmail" to "Gmail",
+                    "read screen" to "Screen",
+                    "show orb" to "Orb"
+                ).forEach { (cmd, label) ->
+                    SuggestionChip(label, !isBusy) { submit(cmd) }
+                }
+            }
+
+            LazyColumn(
+                state = listState,
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                contentPadding = PaddingValues(vertical = 8.dp)
+            ) {
+                items(messages) { msg ->
+                    if (msg.isUser) UserBubble(msg.text) else AiBubble(msg.text)
+                }
+            }
+        }
+
+        // Composer (always)
+        ComposerBar(
+            inputText = inputText,
+            onInputChange = { inputText = it },
+            onSend = { submit(inputText) },
+            onMic = { startVoice() }
+        )
+    }
+}
+
+@Composable
+private fun SetupStrip(
+    a11yOn: Boolean,
+    hasApiKey: Boolean,
+    onControl: () -> Unit,
+    onApi: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp)
+            .padding(bottom = 8.dp)
+            .clip(RoundedCornerShape(14.dp))
+            .background(JimiCard)
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                "Finish setup",
+                color = JimiText,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Medium
+            )
+            Text(
+                buildString {
+                    if (!a11yOn) append("Enable control  ")
+                    if (!hasApiKey) append("Add AI key")
+                }.trim(),
+                color = JimiTextDim,
+                fontSize = 11.sp
+            )
+        }
+        if (!a11yOn) {
+            Text(
+                "Control",
+                color = JimiPrimary,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier
+                    .clickable(onClick = onControl)
+                    .padding(horizontal = 8.dp)
+            )
+        }
+        if (!hasApiKey) {
+            Text(
+                "API",
+                color = JimiAccent,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier
+                    .clickable(onClick = onApi)
+                    .padding(horizontal = 8.dp)
+            )
         }
     }
 }
 
 @Composable
-private fun StatusDot(label: String, ok: Boolean, onClick: () -> Unit) {
-    Row(
-        modifier = Modifier
-            .clip(RoundedCornerShape(20.dp))
+private fun HomeCard(
+    title: String,
+    subtitle: String,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    Column(
+        modifier = modifier
+            .clip(RoundedCornerShape(18.dp))
             .background(JimiCard)
+            .border(1.dp, JimiPrimary.copy(alpha = 0.12f), RoundedCornerShape(18.dp))
             .clickable(onClick = onClick)
-            .padding(horizontal = 10.dp, vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically
+            .padding(16.dp)
     ) {
-        Box(
-            modifier = Modifier
-                .size(7.dp)
-                .clip(CircleShape)
-                .background(if (ok) JimiPrimary else JimiError)
+        Text(
+            title,
+            color = JimiText,
+            fontSize = 15.sp,
+            fontWeight = FontWeight.SemiBold
         )
-        Spacer(modifier = Modifier.width(6.dp))
-        Text(label, color = JimiTextDim, fontSize = 11.sp)
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            subtitle,
+            color = JimiTextDim,
+            fontSize = 12.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
     }
 }
 
@@ -515,20 +578,93 @@ private fun SuggestionChip(label: String, enabled: Boolean, onClick: () -> Unit)
         modifier = Modifier
             .clip(RoundedCornerShape(16.dp))
             .background(JimiCard)
-            .border(1.dp, JimiPrimary.copy(alpha = 0.15f), RoundedCornerShape(16.dp))
+            .border(1.dp, JimiPrimary.copy(alpha = 0.12f), RoundedCornerShape(16.dp))
             .clickable(enabled = enabled, onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = 9.dp)
+            .padding(horizontal = 14.dp, vertical = 8.dp)
     ) {
         Text(label, color = JimiText, fontSize = 13.sp, fontWeight = FontWeight.Medium)
     }
 }
 
 @Composable
-private fun UserBubble(text: String) {
+private fun ComposerBar(
+    inputText: String,
+    onInputChange: (String) -> Unit,
+    onSend: () -> Unit,
+    onMic: () -> Unit
+) {
     Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.End
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 12.dp)
+            .border(
+                1.dp,
+                Brush.horizontalGradient(
+                    listOf(JimiPrimary.copy(alpha = 0.4f), JimiSecondary.copy(alpha = 0.25f))
+                ),
+                RoundedCornerShape(28.dp)
+            )
+            .background(JimiCard, RoundedCornerShape(28.dp))
+            .padding(horizontal = 6.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
+        IconButton(onClick = onMic) {
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .background(
+                        Brush.linearGradient(
+                            listOf(JimiPrimary.copy(alpha = 0.3f), JimiSecondary.copy(alpha = 0.2f))
+                        )
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(Icons.Default.Mic, "Voice", tint = JimiPrimary)
+            }
+        }
+        BasicTextField(
+            value = inputText,
+            onValueChange = onInputChange,
+            modifier = Modifier
+                .weight(1f)
+                .padding(horizontal = 8.dp),
+            textStyle = TextStyle(color = JimiText, fontSize = 15.sp),
+            cursorBrush = SolidColor(JimiPrimary),
+            decorationBox = { inner ->
+                if (inputText.isEmpty()) {
+                    Text("Ask Jimi anything…", color = JimiTextDim, fontSize = 15.sp)
+                }
+                inner()
+            }
+        )
+        IconButton(onClick = onSend) {
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .background(
+                        if (inputText.isNotBlank())
+                            Brush.linearGradient(listOf(JimiPrimary, JimiSecondary))
+                        else
+                            Brush.linearGradient(listOf(JimiCardElevated, JimiCardElevated))
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    Icons.Default.Send,
+                    "Send",
+                    tint = if (inputText.isNotBlank()) Color.Black else JimiTextDim,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun UserBubble(text: String) {
+    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
         Box(
             modifier = Modifier
                 .widthIn(max = 300.dp)
@@ -543,38 +679,32 @@ private fun UserBubble(text: String) {
 
 @Composable
 private fun AiBubble(text: String) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.Start
-    ) {
-        // Aurora seam
+    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Start) {
         Box(
             modifier = Modifier
                 .widthIn(max = 320.dp)
                 .clip(RoundedCornerShape(6.dp, 18.dp, 18.dp, 18.dp))
                 .background(JimiCard)
                 .border(
-                    width = 1.dp,
-                    brush = Brush.verticalGradient(
+                    1.dp,
+                    Brush.verticalGradient(
                         listOf(
-                            JimiPrimary.copy(alpha = 0.45f),
-                            JimiSecondary.copy(alpha = 0.2f),
+                            JimiPrimary.copy(alpha = 0.4f),
+                            JimiSecondary.copy(alpha = 0.15f),
                             Color.Transparent
                         )
                     ),
-                    shape = RoundedCornerShape(6.dp, 18.dp, 18.dp, 18.dp)
+                    RoundedCornerShape(6.dp, 18.dp, 18.dp, 18.dp)
                 )
-                .padding(start = 4.dp)
+                .padding(horizontal = 14.dp, vertical = 11.dp)
         ) {
-            Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 11.dp)) {
+            Column {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Box(
                         modifier = Modifier
-                            .size(8.dp)
+                            .size(7.dp)
                             .clip(CircleShape)
-                            .background(
-                                Brush.linearGradient(listOf(JimiPrimary, JimiSecondary))
-                            )
+                            .background(Brush.linearGradient(listOf(JimiPrimary, JimiSecondary)))
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
