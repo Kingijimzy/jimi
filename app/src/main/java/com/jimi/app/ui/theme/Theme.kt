@@ -5,19 +5,20 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 
-/** Jarvis / Abdullah Arshad–style dark AI engine palette */
-val JimiBlack = Color(0xFF05050A)
-val JimiSurface = Color(0xFF0C0C14)
-val JimiCard = Color(0xFF14141F)
-val JimiCardElevated = Color(0xFF1C1C2A)
-val JimiPrimary = Color(0xFF00E5FF)       // Electric cyan
-val JimiSecondary = Color(0xFF8B5CFF)     // Violet
-val JimiAccent = Color(0xFF00FFC6)        // Mint
-val JimiPink = Color(0xFFFF5AC8)          // Soft magenta for energy
-val JimiText = Color(0xFFF2F2F8)
-val JimiTextDim = Color(0xFF8B8BA3)
-val JimiError = Color(0xFFFF5E6C)
-val JimiRing = Color(0x3300E5FF)
+/** ChatAI / Aurora dark palette — teal + violet aurora */
+val JimiBlack = Color(0xFF0B0B0F)
+val JimiSurface = Color(0xFF121218)
+val JimiCard = Color(0xFF1A1A22)
+val JimiCardElevated = Color(0xFF22222E)
+val JimiPrimary = Color(0xFF2EE6D6)       // Teal
+val JimiSecondary = Color(0xFF7B6CFF)     // Soft violet
+val JimiAccent = Color(0xFF5B8CFF)        // Blue accent
+val JimiPink = Color(0xFFE56BFF)
+val JimiText = Color(0xFFF4F4F8)
+val JimiTextDim = Color(0xFF8E8E9A)
+val JimiError = Color(0xFFFF6B7A)
+val JimiUserBubble = Color(0xFF252532)
+val JimiAiSeam = Color(0xFF2EE6D6)
 
 private val DarkColorScheme = darkColorScheme(
     primary = JimiPrimary,
@@ -33,11 +34,6 @@ private val DarkColorScheme = darkColorScheme(
 )
 
 @Composable
-fun JimiTheme(
-    content: @Composable () -> Unit
-) {
-    MaterialTheme(
-        colorScheme = DarkColorScheme,
-        content = content
-    )
+fun JimiTheme(content: @Composable () -> Unit) {
+    MaterialTheme(colorScheme = DarkColorScheme, content = content)
 }
