@@ -4,6 +4,7 @@ import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -40,10 +41,10 @@ fun SettingsScreen(
     val appPrefs = remember { AppPrefs(context) }
 
     val providers = listOf(
-        "gemini" to "Gemini (Google AI Studio) — best free",
+        "gemini" to "Gemini — best free",
         "groq" to "Groq — fast free",
-        "openrouter" to "OpenRouter (free models; often limited)",
-        "deepseek" to "DeepSeek (paid later)"
+        "openrouter" to "OpenRouter — free (limited)",
+        "deepseek" to "DeepSeek — paid later"
     )
 
     var keys by remember {
@@ -83,13 +84,21 @@ fun SettingsScreen(
             IconButton(onClick = onBack) {
                 Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = JimiPrimary)
             }
-            Text(
-                text = "Settings",
-                color = JimiText,
-                fontSize = 20.sp,
-                fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.padding(start = 8.dp)
-            )
+            Column(modifier = Modifier.padding(start = 8.dp)) {
+                Text(
+                    text = "SYSTEM",
+                    color = JimiPrimary,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 2.sp
+                )
+                Text(
+                    text = "Engine settings",
+                    color = JimiText,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
         }
 
         Column(
@@ -98,9 +107,10 @@ fun SettingsScreen(
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 20.dp)
         ) {
-            Text("Jarvis orb", color = JimiPrimary, fontSize = 14.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(bottom = 8.dp))
+            SectionLabel("ORB")
             ToggleRow(
-                title = "Floating orb on screen",
+                title = "Floating orb",
+                subtitle = if (canOverlay) "Tap open · long-press voice" else "Needs overlay permission",
                 checked = orbOn && canOverlay,
                 onCheckedChange = { enable ->
                     if (enable) {
@@ -124,17 +134,12 @@ fun SettingsScreen(
                     }
                 }
             )
-            Text(
-                text = if (canOverlay) "Tap orb anywhere to open Jimi. Drag to move."
-                else "Needs \"Display over other apps\" permission (tap toggle to open settings).",
-                color = JimiTextDim,
-                fontSize = 12.sp,
-                modifier = Modifier.padding(top = 4.dp, bottom = 16.dp)
-            )
 
-            Text("Voice", color = JimiPrimary, fontSize = 14.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(bottom = 8.dp))
+            Spacer(modifier = Modifier.height(16.dp))
+            SectionLabel("VOICE")
             ToggleRow(
-                title = "Speak replies (TTS)",
+                title = "Speak replies",
+                subtitle = "TTS for engine responses",
                 checked = ttsEnabled,
                 onCheckedChange = {
                     ttsEnabled = it
@@ -143,10 +148,10 @@ fun SettingsScreen(
             )
 
             Spacer(modifier = Modifier.height(16.dp))
-
-            Text("Safety", color = JimiPrimary, fontSize = 14.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(bottom = 8.dp))
+            SectionLabel("SAFETY")
             ToggleRow(
                 title = "Confirm sensitive actions",
+                subtitle = "Calls and irreversible steps",
                 checked = confirmSensitive,
                 onCheckedChange = {
                     confirmSensitive = it
@@ -155,16 +160,21 @@ fun SettingsScreen(
             )
 
             Spacer(modifier = Modifier.height(16.dp))
-
-            Text("Macros", color = JimiPrimary, fontSize = 14.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(bottom = 8.dp))
+            SectionLabel("MACROS")
             if (macros.isEmpty()) {
-                Text("No macros yet. Say: teach daily rewards", color = JimiTextDim, fontSize = 13.sp, modifier = Modifier.padding(bottom = 12.dp))
+                Text(
+                    "No macros yet. Teach from the engine or run FC daily.",
+                    color = JimiTextDim,
+                    fontSize = 12.sp,
+                    modifier = Modifier.padding(bottom = 12.dp)
+                )
             } else {
                 macros.forEach { name ->
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(bottom = 8.dp)
+                            .border(1.dp, JimiPrimary.copy(alpha = 0.12f), RoundedCornerShape(12.dp))
                             .background(JimiCard, RoundedCornerShape(12.dp))
                             .padding(horizontal = 14.dp, vertical = 8.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -182,13 +192,12 @@ fun SettingsScreen(
             }
 
             Spacer(modifier = Modifier.height(8.dp))
-
-            Text("API Keys", color = JimiPrimary, fontSize = 14.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(bottom = 8.dp))
+            SectionLabel("AI LINK")
             Text(
-                text = "Recommended: Gemini from Google AI Studio\nhttps://aistudio.google.com/apikey",
+                text = "Gemini: aistudio.google.com/apikey",
                 color = JimiTextDim,
-                fontSize = 13.sp,
-                modifier = Modifier.padding(bottom = 16.dp)
+                fontSize = 12.sp,
+                modifier = Modifier.padding(bottom = 12.dp)
             )
 
             providers.forEach { (id, label) ->
@@ -200,11 +209,11 @@ fun SettingsScreen(
                         router.setKey(id, new)
                     }
                 )
-                Spacer(modifier = Modifier.height(14.dp))
+                Spacer(modifier = Modifier.height(12.dp))
             }
 
             TextButton(onClick = { appPrefs.onboardingDismissed = false }) {
-                Text("Show setup checklist again", color = JimiPrimary, fontSize = 13.sp)
+                Text("Show engine setup again", color = JimiPrimary, fontSize = 13.sp)
             }
 
             Spacer(modifier = Modifier.height(40.dp))
@@ -213,22 +222,43 @@ fun SettingsScreen(
 }
 
 @Composable
-private fun ToggleRow(title: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
+private fun SectionLabel(text: String) {
+    Text(
+        text = text,
+        color = JimiPrimary,
+        fontSize = 11.sp,
+        fontWeight = FontWeight.Bold,
+        letterSpacing = 2.sp,
+        modifier = Modifier.padding(bottom = 8.dp)
+    )
+}
+
+@Composable
+private fun ToggleRow(
+    title: String,
+    subtitle: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .background(JimiCard, RoundedCornerShape(12.dp))
-            .padding(horizontal = 14.dp, vertical = 10.dp),
+            .border(1.dp, JimiPrimary.copy(alpha = 0.12f), RoundedCornerShape(14.dp))
+            .background(JimiCard, RoundedCornerShape(14.dp))
+            .padding(horizontal = 14.dp, vertical = 12.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(title, color = JimiText, fontSize = 14.sp)
+        Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
+            Text(title, color = JimiText, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+            Text(subtitle, color = JimiTextDim, fontSize = 11.sp)
+        }
         Switch(
             checked = checked,
             onCheckedChange = onCheckedChange,
             colors = SwitchDefaults.colors(
                 checkedThumbColor = JimiPrimary,
-                checkedTrackColor = JimiPrimary.copy(alpha = 0.4f)
+                checkedTrackColor = JimiPrimary.copy(alpha = 0.35f)
             )
         )
     }
@@ -237,10 +267,11 @@ private fun ToggleRow(title: String, checked: Boolean, onCheckedChange: (Boolean
 @Composable
 private fun KeyField(label: String, value: String, onValueChange: (String) -> Unit) {
     Column {
-        Text(label, color = JimiText, fontSize = 14.sp, modifier = Modifier.padding(bottom = 6.dp))
+        Text(label, color = JimiText, fontSize = 13.sp, modifier = Modifier.padding(bottom = 6.dp))
         Box(
             modifier = Modifier
                 .fillMaxWidth()
+                .border(1.dp, JimiPrimary.copy(alpha = 0.12f), RoundedCornerShape(12.dp))
                 .background(JimiCard, RoundedCornerShape(12.dp))
                 .padding(horizontal = 14.dp, vertical = 12.dp)
         ) {
@@ -251,7 +282,7 @@ private fun KeyField(label: String, value: String, onValueChange: (String) -> Un
                 cursorBrush = SolidColor(JimiPrimary),
                 modifier = Modifier.fillMaxWidth(),
                 decorationBox = { inner ->
-                    if (value.isEmpty()) Text("Paste API key here...", color = JimiTextDim, fontSize = 14.sp)
+                    if (value.isEmpty()) Text("Paste key…", color = JimiTextDim, fontSize = 14.sp)
                     inner()
                 }
             )

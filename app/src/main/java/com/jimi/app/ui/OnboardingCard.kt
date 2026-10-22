@@ -1,6 +1,7 @@
 package com.jimi.app.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -27,6 +28,7 @@ fun OnboardingCard(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 8.dp)
+            .border(1.dp, JimiPrimary.copy(alpha = 0.25f), RoundedCornerShape(16.dp))
             .background(JimiCard, RoundedCornerShape(16.dp))
             .padding(16.dp)
     ) {
@@ -35,34 +37,41 @@ fun OnboardingCard(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(
-                text = "Unlock full Jimi",
-                color = JimiPrimary,
-                fontSize = 16.sp,
-                fontWeight = FontWeight.SemiBold
-            )
+            Column {
+                Text(
+                    text = "ENGINE SETUP",
+                    color = JimiPrimary,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 2.sp
+                )
+                Text(
+                    text = "Unlock full control",
+                    color = JimiText,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
             IconButton(onClick = onDismiss, modifier = Modifier.size(28.dp)) {
                 Icon(Icons.Default.Close, "Dismiss", tint = JimiTextDim)
             }
         }
         Text(
-            text = "Without setup, Jimi still controls volume, apps, torch, time, battery.\n\n" +
-                    "For Jarvis-level control (tap screen, macros, FC Mobile):\n" +
-                    "1. Turn ON Accessibility for Jimi (required)\n" +
-                    "2. Allow Microphone for voice\n" +
-                    "3. Add free Groq/Gemini key for smart chat\n\n" +
-                    "Tip: tap the chips under the chat (Time, Torch, Chrome...).",
+            text = "1. Accessibility → screen taps, macros, FC Mobile\n" +
+                    "2. Microphone → voice from orb\n" +
+                    "3. Gemini key → smart reasoning\n" +
+                    "4. Floating orb → always-on Jarvis",
             color = JimiTextDim,
-            fontSize = 13.sp,
+            fontSize = 12.sp,
             lineHeight = 18.sp,
-            modifier = Modifier.padding(top = 8.dp, bottom = 12.dp)
+            modifier = Modifier.padding(top = 10.dp, bottom = 12.dp)
         )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             TextButton(onClick = onOpenAccessibility) {
-                Text("Enable control", color = JimiPrimary, fontSize = 13.sp)
+                Text("ENABLE CONTROL", color = JimiPrimary, fontSize = 12.sp, fontWeight = FontWeight.Bold)
             }
             TextButton(onClick = onOpenSettings) {
-                Text("API keys", color = JimiPrimary, fontSize = 13.sp)
+                Text("API + ORB", color = JimiAccent, fontSize = 12.sp, fontWeight = FontWeight.Bold)
             }
         }
     }
