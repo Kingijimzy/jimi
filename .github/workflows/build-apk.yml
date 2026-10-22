@@ -37,27 +37,42 @@ jobs:
         run: ./gradlew assembleDebug --stacktrace
 
       - name: Prepare installable APK
+        id: apk
         run: |
           mkdir -p dist
           SRC=$(ls app/build/outputs/apk/debug/*.apk | head -n 1)
           echo "Source APK: $SRC"
           ls -lh "$SRC"
-          # Verify it is a valid zip/APK
-          unzip -t "$SRC" | tail -n 5
-          cp "$SRC" dist/jimi-debug.apk
-          # Size check (real APK should be > 1MB typically)
-          SIZE=$(stat -c%s dist/jimi-debug.apk)
-          echo "APK size bytes: $SIZE"
-          if [ "$SIZE" -lt 100000 ]; then
-            echo "APK looks too small — build may be broken"
+
+          # Must be a valid ZIP (APK is a zip)
+          file "$SRC"
+          unzip -t "$SRC" | tail -n 8
+
+          # Magic bytes PK (zip)
+          HEAD=$(xxd -p -l 4 "$SRC")
+          echo "Header: $HEAD"
+          if [ "$HEAD" != "504b0304" ]; then
+            echo "Not a valid APK/ZIP header"
             exit 1
           fi
-          # Show package info if aapt available
-          if command -v aapt >/dev/null 2>&1; then
-            aapt dump badging dist/jimi-debug.apk | head -n 5 || true
+
+          VERSION=$(grep versionName app/build.gradle.kts | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          NAME="jimi-${VERSION}-debug.apk"
+          cp "$SRC" "dist/$NAME"
+          cp "$SRC" dist/jimi-debug.apk
+
+          SIZE=$(stat -c%s dist/jimi-debug.apk)
+          echo "APK size bytes: $SIZE"
+          if [ "$SIZE" -lt 500000 ]; then
+            echo "APK too small — broken build"
+            exit 1
           fi
 
-      - name: Upload APK artifact
+          echo "apk_name=$NAME" >> "$GITHUB_OUTPUT"
+          echo "apk_size=$SIZE" >> "$GITHUB_OUTPUT"
+          ls -lh dist/
+
+      - name: Upload APK artifact (single file)
         uses: actions/upload-artifact@v4
         with:
           name: jimi-debug-apk
@@ -70,16 +85,25 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: latest
-          name: Jimi latest build
+          name: Jimi — install this APK
           body: |
-            **Install steps (Redmi):**
-            1. Download **jimi-debug.apk** below (not a zip).
-            2. Open the file with Package Installer.
-            3. Allow Install unknown apps for Chrome/Files if asked.
-            4. If you already have an older Jimi, uninstall it first, then install.
+            ## Install on Redmi (important)
 
-            Do **not** try to install the GitHub Actions artifact zip without extracting it first.
-          files: dist/jimi-debug.apk
+            1. Download **only** the file named `jimi-debug.apk` (or `jimi-*-debug.apk`).
+            2. **Do not** install a `.zip` from Actions. If you got a zip, extract it first — install the `.apk` inside.
+            3. Uninstall any old **Jimi** app first.
+            4. Open the APK with **Package Installer** / Files.
+            5. Settings → Additional settings → Privacy → **Special app access** → Install unknown apps → allow **Files** or **Chrome**.
+
+            If you still see "package invalid" / "parse error":
+            - Re-download (file may be incomplete)
+            - Confirm file size is **several MB**, not a few KB
+            - Confirm the name ends with `.apk`
+
+            Build: `${{ github.sha }}`
+          files: |
+            dist/jimi-debug.apk
+            dist/${{ steps.apk.outputs.apk_name }}
           draft: false
           prerelease: true
           make_latest: true
@@ -90,6 +114,8 @@ jobs:
         if: github.event_name == 'release'
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/jimi-debug.apk
+          files: |
+            dist/jimi-debug.apk
+            dist/${{ steps.apk.outputs.apk_name }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
