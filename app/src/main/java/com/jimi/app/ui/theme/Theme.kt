@@ -1,21 +1,23 @@
 package com.jimi.app.ui.theme
 
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 
-// Elegant dark palette inspired by Jarvis
-val JimiBlack = Color(0xFF0A0A0F)
-val JimiSurface = Color(0xFF12121A)
-val JimiCard = Color(0xFF1A1A24)
-val JimiPrimary = Color(0xFF00D4FF)      // Cyan glow
-val JimiSecondary = Color(0xFF7B61FF)    // Soft purple
-val JimiAccent = Color(0xFF00FFA3)       // Soft green
-val JimiText = Color(0xFFE8E8F0)
-val JimiTextDim = Color(0xFF9A9AB0)
-val JimiError = Color(0xFFFF6B6B)
+/** Jarvis / Abdullah Arshad–style dark AI engine palette */
+val JimiBlack = Color(0xFF05050A)
+val JimiSurface = Color(0xFF0C0C14)
+val JimiCard = Color(0xFF14141F)
+val JimiCardElevated = Color(0xFF1C1C2A)
+val JimiPrimary = Color(0xFF00E5FF)       // Electric cyan
+val JimiSecondary = Color(0xFF8B5CFF)     // Violet
+val JimiAccent = Color(0xFF00FFC6)        // Mint
+val JimiPink = Color(0xFFFF5AC8)          // Soft magenta for energy
+val JimiText = Color(0xFFF2F2F8)
+val JimiTextDim = Color(0xFF8B8BA3)
+val JimiError = Color(0xFFFF5E6C)
+val JimiRing = Color(0x3300E5FF)
 
 private val DarkColorScheme = darkColorScheme(
     primary = JimiPrimary,
@@ -32,7 +34,6 @@ private val DarkColorScheme = darkColorScheme(
 
 @Composable
 fun JimiTheme(
-    darkTheme: Boolean = true, // Always dark for Jarvis feel
     content: @Composable () -> Unit
 ) {
     MaterialTheme(

@@ -2,151 +2,212 @@ package com.jimi.app.ui
 
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.runtime.*
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.size
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.*
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.unit.dp
 import com.jimi.app.ui.theme.*
 import kotlin.math.cos
 import kotlin.math.sin
 
 enum class OrbState {
-    IDLE,       // Calm breathing
-    LISTENING,  // Expanding rings
-    THINKING,   // Spinning particles
-    SPEAKING,   // Pulsing
-    ACTING,     // Strong glow + activity
-    ERROR       // Red warning
+    IDLE, LISTENING, THINKING, SPEAKING, ACTING, ERROR
 }
 
+/**
+ * Premium Jarvis-style orb inspired by Dribbble AI orbs
+ * (Abdullah Arshad / agentic sphere aesthetics):
+ * layered glow, rotating arcs, aurora core, state-driven motion.
+ */
 @Composable
 fun JimiOrb(
     state: OrbState = OrbState.IDLE,
     modifier: Modifier = Modifier
 ) {
-    val infiniteTransition = rememberInfiniteTransition(label = "orb")
+    val infinite = rememberInfiniteTransition(label = "orb")
 
-    // Breathing animation (idle)
-    val breath by infiniteTransition.animateFloat(
-        initialValue = 0.92f,
-        targetValue = 1.08f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(2200, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
+    val breath by infinite.animateFloat(
+        0.94f, 1.06f,
+        infiniteRepeatable(tween(2600, easing = FastOutSlowInEasing), RepeatMode.Reverse),
         label = "breath"
     )
-
-    // Rotation for thinking
-    val rotation by infiniteTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = 360f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(4000, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "rotation"
+    val rotation by infinite.animateFloat(
+        0f, 360f,
+        infiniteRepeatable(tween(12000, easing = LinearEasing), RepeatMode.Restart),
+        label = "rot"
     )
-
-    // Pulse for speaking / acting
-    val pulse by infiniteTransition.animateFloat(
-        initialValue = 0.85f,
-        targetValue = 1.15f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(900, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
+    val rotationFast by infinite.animateFloat(
+        0f, -360f,
+        infiniteRepeatable(tween(7000, easing = LinearEasing), RepeatMode.Restart),
+        label = "rotFast"
+    )
+    val pulse by infinite.animateFloat(
+        0.88f, 1.12f,
+        infiniteRepeatable(tween(800, easing = FastOutSlowInEasing), RepeatMode.Reverse),
         label = "pulse"
+    )
+    val wave by infinite.animateFloat(
+        0f, 1f,
+        infiniteRepeatable(tween(1800, easing = LinearEasing), RepeatMode.Restart),
+        label = "wave"
     )
 
     val scale = when (state) {
         OrbState.IDLE -> breath
-        OrbState.LISTENING -> breath * 1.05f
-        OrbState.THINKING -> 1f
+        OrbState.LISTENING -> breath * 1.08f
+        OrbState.THINKING -> 1.02f
         OrbState.SPEAKING -> pulse
-        OrbState.ACTING -> pulse * 1.1f
+        OrbState.ACTING -> pulse * 1.08f
         OrbState.ERROR -> breath
     }
 
-    val coreColor = when (state) {
+    val c1 = when (state) {
         OrbState.IDLE -> JimiPrimary
         OrbState.LISTENING -> JimiPrimary
         OrbState.THINKING -> JimiSecondary
         OrbState.SPEAKING -> JimiAccent
-        OrbState.ACTING -> JimiPrimary
+        OrbState.ACTING -> JimiPink
         OrbState.ERROR -> JimiError
+    }
+    val c2 = when (state) {
+        OrbState.IDLE -> JimiSecondary
+        OrbState.LISTENING -> JimiAccent
+        OrbState.THINKING -> JimiPrimary
+        OrbState.SPEAKING -> JimiPrimary
+        OrbState.ACTING -> JimiPrimary
+        OrbState.ERROR -> Color(0xFFFF8A80)
     }
 
     Box(
         contentAlignment = Alignment.Center,
-        modifier = modifier.size(220.dp)
+        modifier = modifier.size(280.dp)
     ) {
-        Canvas(modifier = Modifier.fillMaxSize()) {
-            val center = Offset(size.width / 2, size.height / 2)
-            val baseRadius = size.minDimension / 2.8f
+        Canvas(Modifier = Modifier.fillMaxSize()) {
+            val center = Offset(size.width / 2f, size.height / 2f)
+            val r = size.minDimension / 2.6f * scale
 
-            // Outer glow rings
-            for (i in 1..3) {
-                val ringScale = scale * (1f + i * 0.18f)
-                val alpha = when (state) {
-                    OrbState.IDLE -> 0.12f / i
-                    OrbState.LISTENING -> 0.25f / i
-                    OrbState.THINKING -> 0.18f / i
-                    OrbState.SPEAKING -> 0.30f / i
-                    OrbState.ACTING -> 0.35f / i
-                    OrbState.ERROR -> 0.22f / i
-                }
-                drawCircle(
-                    color = coreColor.copy(alpha = alpha),
-                    radius = baseRadius * ringScale,
+            // Soft outer aurora glow
+            drawCircle(
+                brush = Brush.radialGradient(
+                    colors = listOf(
+                        c1.copy(alpha = 0.22f),
+                        c2.copy(alpha = 0.08f),
+                        Color.Transparent
+                    ),
                     center = center,
-                    style = Stroke(width = 2.5f * (4 - i))
-                )
-            }
+                    radius = r * 2.1f
+                ),
+                radius = r * 2.0f,
+                center = center
+            )
 
-            // Thinking particles
-            if (state == OrbState.THINKING || state == OrbState.ACTING) {
-                val particleCount = 8
-                for (i in 0 until particleCount) {
-                    val angle = Math.toRadians((rotation + i * (360f / particleCount)).toDouble())
-                    val dist = baseRadius * 1.35f
-                    val x = center.x + cos(angle).toFloat() * dist
-                    val y = center.y + sin(angle).toFloat() * dist
+            // Listening expanding waves
+            if (state == OrbState.LISTENING || state == OrbState.SPEAKING) {
+                for (i in 0..2) {
+                    val t = ((wave + i / 3f) % 1f)
                     drawCircle(
-                        color = coreColor.copy(alpha = 0.7f),
-                        radius = 4.5f,
-                        center = Offset(x, y)
+                        color = c1.copy(alpha = (1f - t) * 0.28f),
+                        radius = r * (1.15f + t * 0.85f),
+                        center = center,
+                        style = Stroke(width = 2.5f)
                     )
                 }
             }
 
-            // Core gradient circle
-            val gradient = Brush.radialGradient(
-                colors = listOf(
-                    coreColor.copy(alpha = 0.95f),
-                    coreColor.copy(alpha = 0.4f),
-                    Color.Transparent
-                ),
-                center = center,
-                radius = baseRadius * scale * 1.1f
-            )
+            // Rotating dashed orbital rings
+            rotate(rotation, center) {
+                drawArc(
+                    color = c1.copy(alpha = 0.45f),
+                    startAngle = 20f,
+                    sweepAngle = 140f,
+                    useCenter = false,
+                    topLeft = Offset(center.x - r * 1.35f, center.y - r * 1.35f),
+                    size = Size(r * 2.7f, r * 2.7f),
+                    style = Stroke(width = 2.2f, cap = StrokeCap.Round)
+                )
+                drawArc(
+                    color = c2.copy(alpha = 0.35f),
+                    startAngle = 200f,
+                    sweepAngle = 100f,
+                    useCenter = false,
+                    topLeft = Offset(center.x - r * 1.35f, center.y - r * 1.35f),
+                    size = Size(r * 2.7f, r * 2.7f),
+                    style = Stroke(width = 1.8f, cap = StrokeCap.Round)
+                )
+            }
+            rotate(rotationFast, center) {
+                drawArc(
+                    color = c2.copy(alpha = 0.4f),
+                    startAngle = 60f,
+                    sweepAngle = 90f,
+                    useCenter = false,
+                    topLeft = Offset(center.x - r * 1.15f, center.y - r * 1.15f),
+                    size = Size(r * 2.3f, r * 2.3f),
+                    style = Stroke(width = 1.5f, cap = StrokeCap.Round)
+                )
+            }
+
+            // Thinking / acting particles on orbit
+            if (state == OrbState.THINKING || state == OrbState.ACTING) {
+                val n = 10
+                for (i in 0 until n) {
+                    val ang = Math.toRadians((rotation * 1.4f + i * (360f / n)).toDouble())
+                    val dist = r * 1.42f
+                    val p = Offset(
+                        center.x + cos(ang).toFloat() * dist,
+                        center.y + sin(ang).toFloat() * dist
+                    )
+                    drawCircle(
+                        color = if (i % 2 == 0) c1 else c2,
+                        radius = 3.2f + (i % 3),
+                        center = p
+                    )
+                }
+            }
+
+            // Glass sphere body
             drawCircle(
-                brush = gradient,
-                radius = baseRadius * scale,
+                brush = Brush.radialGradient(
+                    colors = listOf(
+                        Color.White.copy(alpha = 0.95f),
+                        c1.copy(alpha = 0.85f),
+                        c2.copy(alpha = 0.55f),
+                        c1.copy(alpha = 0.15f)
+                    ),
+                    center = Offset(center.x - r * 0.25f, center.y - r * 0.3f),
+                    radius = r * 1.35f
+                ),
+                radius = r,
                 center = center
             )
 
-            // Inner bright core
+            // Specular highlight
             drawCircle(
-                color = Color.White.copy(alpha = 0.85f),
-                radius = baseRadius * scale * 0.28f,
+                brush = Brush.radialGradient(
+                    colors = listOf(
+                        Color.White.copy(alpha = 0.7f),
+                        Color.Transparent
+                    ),
+                    center = Offset(center.x - r * 0.28f, center.y - r * 0.35f),
+                    radius = r * 0.45f
+                ),
+                radius = r * 0.4f,
+                center = Offset(center.x - r * 0.28f, center.y - r * 0.35f)
+            )
+
+            // Inner core
+            drawCircle(
+                color = Color.White.copy(alpha = 0.9f),
+                radius = r * 0.18f,
                 center = center
             )
         }
