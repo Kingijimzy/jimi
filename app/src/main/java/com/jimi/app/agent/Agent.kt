@@ -7,6 +7,7 @@ import com.jimi.app.prefs.AppPrefs
 import com.jimi.app.skills.BrowserAutomation
 import com.jimi.app.skills.CodingAssistant
 import com.jimi.app.skills.GameSentinel
+import com.jimi.app.skills.LearnedSkillStore
 import com.jimi.app.skills.MacroRunner
 import com.jimi.app.skills.MacroStore
 import com.jimi.app.skills.NetworkRadar
@@ -45,6 +46,7 @@ class Agent(
     init {
         TeachMode.bind(context)
         macroRunner.seedFcDailyExample(context)
+        LearnedSkillStore.loadIntoRegistry(context)
     }
 
     fun stop() {
@@ -126,18 +128,23 @@ class Agent(
     }
 
     private fun handleLocal(lower: String, original: String): Boolean {
+        AgentOrbCommands.handle(context, lower)?.let {
+            onMessage(it)
+            return true
+        }
+
         if (lower in listOf("hi", "hello", "hey", "hi jimi", "hello jimi", "hey jimi")) {
             onMessage(
                 "Hello. I'm Jimi — phone control, browser, games, macros, and AI.\n" +
-                        "Try: demo | open YouTube | open Gmail | battery | teach daily rewards"
+                        "Try: demo | show orb | open YouTube | open Gmail | teach daily rewards"
             )
             return true
         }
         if (lower.contains("who are you") || lower.contains("what are you") || lower == "about") {
             onMessage(
                 "I'm Jimi — hybrid Jarvis-style AI on Android.\n" +
-                        "Control: apps, volume, torch, screen taps, swipes, macros.\n" +
-                        "Skills: browser, research, coding, FC Mobile, network.\n" +
+                        "Control: apps, volume, torch, screen taps, swipes, macros, floating orb.\n" +
+                        "Skills: browser, research, coding, FC Mobile, network, learned routines.\n" +
                         "Screen: ${if (ScreenTools.isReady()) "ON" else "OFF — enable Accessibility"}."
             )
             return true
@@ -156,13 +163,13 @@ class Agent(
                     "• Volume: ${phoneTools.setVolume("up")}",
                     "• Screen: ${if (ScreenTools.isReady()) "ON" else "OFF"}",
                     "• Macros: ${MacroStore.list(context).joinToString().ifEmpty { "none" }}",
-                    "Try: open YouTube | open Gmail | scroll down | run macro fc daily"
+                    "• Learned skills: ${LearnedSkillStore.all(context).size}",
+                    "Try: show orb | open YouTube | run macro fc daily"
                 ).joinToString("\n")
             )
             return true
         }
 
-        // Browser / connectors (local)
         if (lower in listOf("open youtube", "youtube")) {
             OrbStateManager.acting(); onMessage(browser.openYoutube()); return true
         }
@@ -253,7 +260,8 @@ class Agent(
 
         if (lower in listOf("list skills", "my skills", "show skills", "skills")) {
             onMessage("Skills:\n" + SkillRegistry.all().joinToString("\n") {
-                "• ${it.name} — ${it.description.take(70)}"
+                val tag = if (it.isAiGenerated) " [learned v${it.version}]" else ""
+                "• ${it.name}$tag — ${it.description.take(60)}"
             })
             return true
         }
@@ -434,10 +442,9 @@ class Agent(
 
         if (lower == "help" || lower == "what can you do") {
             onMessage(
-                "Local: time, battery, torch, volume, open apps, YouTube, Gmail, Chrome, demo.\n" +
-                        "Accessibility: read screen, tap text, swipe, macros, teach-a-task, FC Mobile.\n" +
-                        "AI key: smart chat + multi-step tools.\n" +
-                        "Say: list skills"
+                "Local: time, battery, torch, volume, YouTube, Gmail, Chrome, show orb, demo.\n" +
+                        "Accessibility: read screen, tap, swipe, macros, teach, FC daily.\n" +
+                        "AI key: smart chat + tools. Say: list skills"
             )
             return true
         }
