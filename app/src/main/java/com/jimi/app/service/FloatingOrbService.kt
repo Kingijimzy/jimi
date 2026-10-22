@@ -7,16 +7,18 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.graphics.Outline
 import android.graphics.PixelFormat
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import android.provider.Settings
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewOutlineProvider
 import android.view.WindowManager
-import android.graphics.Outline
 import android.widget.FrameLayout
 import androidx.core.app.NotificationCompat
 import com.jimi.app.MainActivity
@@ -24,13 +26,14 @@ import kotlin.math.abs
 
 /**
  * Always-on floating orb (Jarvis style).
- * Tap opens Jimi. Drag to move. Requires "Display over other apps" permission.
+ * Tap = open Jimi. Long-press = open + start voice. Drag to move.
  */
 class FloatingOrbService : Service() {
 
     companion object {
         private const val CHANNEL_ID = "jimi_orb"
         private const val NOTIF_ID = 42
+        const val EXTRA_START_VOICE = "start_voice"
 
         @Volatile
         var isRunning: Boolean = false
@@ -55,6 +58,7 @@ class FloatingOrbService : Service() {
 
     private var windowManager: WindowManager? = null
     private var orbView: View? = null
+    private val mainHandler = Handler(Looper.getMainLooper())
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -100,12 +104,19 @@ class FloatingOrbService : Service() {
         )
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("Jimi is active")
-            .setContentText("Floating orb on screen · tap to open Jimi")
+            .setContentText("Tap orb to open · Long-press for voice")
             .setSmallIcon(android.R.drawable.ic_btn_speak_now)
             .setContentIntent(open)
             .setOngoing(true)
             .setSilent(true)
             .build()
+    }
+
+    private fun openJimi(startVoice: Boolean) {
+        val intent = Intent(this, MainActivity::class.java)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            .putExtra(EXTRA_START_VOICE, startVoice)
+        startActivity(intent)
     }
 
     private fun showOrb() {
@@ -160,6 +171,17 @@ class FloatingOrbService : Service() {
         var touchX = 0f
         var touchY = 0f
         var moved = false
+        var longPressFired = false
+
+        val longPressRunnable = Runnable {
+            if (!moved) {
+                longPressFired = true
+                // Visual pulse
+                frame.alpha = 0.6f
+                mainHandler.postDelayed({ frame.alpha = 0.92f }, 200)
+                openJimi(startVoice = true)
+            }
+        }
 
         frame.setOnTouchListener { _, event ->
             when (event.action) {
@@ -169,12 +191,17 @@ class FloatingOrbService : Service() {
                     touchX = event.rawX
                     touchY = event.rawY
                     moved = false
+                    longPressFired = false
+                    mainHandler.postDelayed(longPressRunnable, 550)
                     true
                 }
                 MotionEvent.ACTION_MOVE -> {
                     val dx = (event.rawX - touchX).toInt()
                     val dy = (event.rawY - touchY).toInt()
-                    if (abs(dx) > 6 || abs(dy) > 6) moved = true
+                    if (abs(dx) > 8 || abs(dy) > 8) {
+                        moved = true
+                        mainHandler.removeCallbacks(longPressRunnable)
+                    }
                     lp.x = initialX + dx
                     lp.y = initialY + dy
                     try {
@@ -183,12 +210,10 @@ class FloatingOrbService : Service() {
                     }
                     true
                 }
-                MotionEvent.ACTION_UP -> {
-                    if (!moved) {
-                        startActivity(
-                            Intent(this, MainActivity::class.java)
-                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
-                        )
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    mainHandler.removeCallbacks(longPressRunnable)
+                    if (!moved && !longPressFired) {
+                        openJimi(startVoice = false)
                     }
                     true
                 }

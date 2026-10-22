@@ -1,38 +1,28 @@
-# Jimi Roadmap
+# Jimi roadmap — full Jarvis targets
 
-## Done (v0.1 foundation)
+## Done
+- [x] Hybrid agent (local commands first → free APIs → paid)
+- [x] Gemini AI Studio native API + Groq + OpenRouter + DeepSeek
+- [x] Accessibility screen control (tap, swipe, read, home/back)
+- [x] Teach-a-task macros + FC Mobile sample
+- [x] Learned skills that evolve on success/fail
+- [x] Browser automation (YouTube, Gmail, Chrome, scroll)
+- [x] Game Sentinel / Network Radar / Research / Coding helpers
+- [x] Voice STT + TTS (main-thread safe for Redmi)
+- [x] Animated Orb UI + status chips + quick actions
+- [x] Floating always-on orb (tap open, long-press voice)
+- [x] Safety confirmations for sensitive actions
+- [x] Continuous APK release: https://github.com/Kingijimzy/jimi/releases/tag/latest
 
-- [x] Orb UI + chat + Settings
-- [x] Hybrid ModelRouter (Groq / Gemini / OpenRouter / DeepSeek)
-- [x] Tool-calling loop (limited steps)
-- [x] Local commands (apps, volume, flashlight, dial, search…)
-- [x] Accessibility Service (tap, swipe, click text, read screen)
-- [x] Memory + Tasks
-- [x] Game Sentinel + FC Mobile sample macro
-- [x] TeachMode (teach once, run forever)
-- [x] Network Radar
-- [x] Research Agent (open web search)
-- [x] Voice STT + TTS + Stop
-- [x] Dial confirmation (sensitive actions)
+## Next
+- [ ] Long-press orb runs command **without** opening full UI (background agent)
+- [ ] Richer teach auto-capture (coordinates + package name)
+- [ ] Notification listener for "read last message"
+- [ ] Optional local small model path for offline chat
+- [ ] Gmail/GitHub OAuth connectors (token-based)
+- [ ] Release-signed APK for Play-like install smoothness
 
-## Next (v0.2)
-
-- [ ] Auto-capture more steps while teaching (from Accessibility events)
-- [ ] Browser multi-step automation (fill forms, extract text)
-- [ ] Stronger coding assistant prompts + GitHub deep links
-- [ ] Floating overlay orb (SYSTEM_ALERT_WINDOW)
-- [ ] Onboarding first-run checklist in UI
-
-## Later (v0.3+)
-
-- [ ] Gmail / YouTube / GitHub OAuth connectors
-- [ ] Optional tiny on-device model (1B quantized) for offline chat
-- [ ] AI-generated skills saved to disk and improved from feedback
-- [ ] Scheduled routines (daily FC claim, morning briefing)
-- [ ] DeepSeek paid path as default when key present
-
-## Device notes (Redmi A3 Pro)
-
-- Keep local-first; short AI context
-- Prefer macros over continuous vision for games
-- Lock Jimi in Recents; allow autostart on MIUI
+## Install (Redmi)
+1. https://github.com/Kingijimzy/jimi/releases/tag/latest
+2. Download **jimi-debug.apk** (not a zip)
+3. Uninstall old Jimi → install → Accessibility ON → Gemini key → show orb
