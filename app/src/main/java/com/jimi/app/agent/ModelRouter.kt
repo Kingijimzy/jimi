@@ -10,6 +10,9 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 /**
  * Hybrid intelligence router.
@@ -114,18 +117,31 @@ class ModelRouter(private val context: Context) {
         needVision: Boolean = false,
         maxTokens: Int = 500
     ): String = withContext(Dispatchers.IO) {
-        val provider = bestProvider(needVision)
+        val primary = bestProvider(needVision)
             ?: return@withContext "No AI provider configured. Open Settings and paste a free key from Google AI Studio (Gemini) or Groq."
 
-        val key = getKey(provider.id)
-        if (key.isEmpty()) {
-            return@withContext "${provider.name} key is empty. Paste it again in Settings."
+        // Use one primary provider. Escalate to another configured free provider only for HTTP 429.
+        val candidates = buildList {
+            add(primary)
+            addAll(availableProviders().filter {
+                it.id != primary.id && it.tier == Tier.FREE && (!needVision || it.hasVision)
+            })
+        }.distinctBy { it.id }
+        var rateLimitMessage: String? = null
+        for (provider in candidates) {
+            val key = getKey(provider.id)
+            if (key.isEmpty()) continue
+            val result = when (provider.style) {
+                ApiStyle.GEMINI_NATIVE -> chatGemini(provider, key, messages, maxTokens)
+                ApiStyle.OPENAI -> chatOpenAiStyle(provider, key, messages, maxTokens)
+            }
+            if (result.startsWith("RATE_LIMITED:")) {
+                rateLimitMessage = result.removePrefix("RATE_LIMITED:").trim()
+                continue
+            }
+            return@withContext result
         }
-
-        when (provider.style) {
-            ApiStyle.GEMINI_NATIVE -> chatGemini(provider, key, messages, maxTokens)
-            ApiStyle.OPENAI -> chatOpenAiStyle(provider, key, messages, maxTokens)
-        }
+        rateLimitMessage ?: "No configured provider could complete this request."
     }
 
     private fun chatGemini(
@@ -193,14 +209,15 @@ class ModelRouter(private val context: Context) {
                     code == 400 && raw.contains("API key", true) ->
                         return "Gemini rejected the API key. Get a free key at aistudio.google.com/apikey and paste it under Gemini in Settings."
                     code == 429 ->
-                        return "Gemini rate limit. Wait a minute or try Groq as a second free key."
+                        return "RATE_LIMITED: Gemini HTTP 429 rate limit. Trying the next configured free provider."
                     code == 401 || code == 403 ->
                         return "Gemini key invalid or blocked. Create a new key in Google AI Studio."
-                    code == 404 || raw.contains("NOT_FOUND", true) -> { /* try next model */ }
-                    else -> { /* try next model */ }
+                    code == 404 || raw.contains("NOT_FOUND", true) ->
+                        return "Gemini model $model was not found. No alternate model was tried."
+                    else -> return lastError
                 }
             } catch (e: Exception) {
-                lastError = "Could not reach Gemini: ${e.message}"
+                return "Could not reach Gemini: ${e.message}"
             }
         }
         return lastError.ifEmpty { "Gemini failed for all models." }
@@ -238,15 +255,14 @@ class ModelRouter(private val context: Context) {
                 lastError = when (code) {
                     401, 403 -> "${provider.name} rejected the key. Check Settings."
                     402 -> "${provider.name} wants payment for model $model."
-                    429 -> "${provider.name} rate limit. Wait or use another provider."
+                    429 -> "RATE_LIMITED: ${provider.name} HTTP 429 rate limit. Trying the next configured free provider."
                     else -> "${provider.name} ($model) error $code: ${raw.take(180)}"
                 }
 
-                // Fatal auth — stop
-                if (code == 401 || code == 403) return lastError
-                // Otherwise try next model
+                // Do not rotate models on ordinary failures. Provider fallback is only for HTTP 429.
+                return lastError
             } catch (e: Exception) {
-                lastError = "Could not reach ${provider.name}: ${e.message}"
+                return "Could not reach ${provider.name}: ${e.message}"
             }
         }
         return if (provider.id == "openrouter") {
@@ -256,7 +272,26 @@ class ModelRouter(private val context: Context) {
         }
     }
 
+    private val requestCounterLock = Any()
+
+    fun requestCountToday(): Int {
+        val prefs = context.getSharedPreferences("jimi_request_budget", Context.MODE_PRIVATE)
+        val today = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
+        return if (prefs.getString("day", "") == today) prefs.getInt("count", 0) else 0
+    }
+
+    private fun recordRequest() {
+        val prefs = context.getSharedPreferences("jimi_request_budget", Context.MODE_PRIVATE)
+        val today = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
+        synchronized(requestCounterLock) {
+            val oldDay = prefs.getString("day", "")
+            val oldCount = if (oldDay == today) prefs.getInt("count", 0) else 0
+            prefs.edit().putString("day", today).putInt("count", oldCount + 1).apply()
+        }
+    }
+
     private fun execute(request: Request): Pair<Int, String> {
+        recordRequest()
         client.newCall(request).execute().use { response ->
             val raw = response.body?.string().orEmpty()
             return response.code to raw

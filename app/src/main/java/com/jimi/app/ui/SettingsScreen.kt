@@ -98,6 +98,11 @@ fun SettingsScreen(
                     fontSize = 18.sp,
                     fontWeight = FontWeight.SemiBold
                 )
+                Text(
+                    text = "AI HTTP requests today: ${router.requestCountToday()}",
+                    color = JimiTextDim,
+                    fontSize = 11.sp
+                )
             }
         }
 

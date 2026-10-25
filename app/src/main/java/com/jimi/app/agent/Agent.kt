@@ -91,6 +91,8 @@ class Agent(
                     .put(JSONObject().put("role", "user").put("content", userGoal))
 
                 var steps = 0
+                var lastFailedToolResult = ""
+                var repeatedFailureCount = 0
                 val maxToolSteps = 4
 
                 while (!stopped && steps < maxToolSteps) {
@@ -106,6 +108,19 @@ class Agent(
                         OrbStateManager.acting()
                         onStatus("Acting...")
                         onMessage(toolResult.message)
+                        if (!toolResult.ok) {
+                            if (toolResult.message == lastFailedToolResult) repeatedFailureCount++ else {
+                                lastFailedToolResult = toolResult.message
+                                repeatedFailureCount = 1
+                            }
+                            if (repeatedFailureCount >= 3) {
+                                onMessage("Stopped recovery after the same action failed three times. I will not repeat it blindly.")
+                                break
+                            }
+                        } else {
+                            lastFailedToolResult = ""
+                            repeatedFailureCount = 0
+                        }
                         messages.put(JSONObject().put("role", "assistant").put("content", raw))
                         messages.put(
                             JSONObject().put("role", "user")
