@@ -72,6 +72,26 @@ class MemoryStore(private val context: Context) {
         }.take(12)
     }
 
+    fun update(id: Long, category: String, text: String): Memory? {
+        val clean = text.trim()
+        if (clean.isEmpty() || clean.length > 500) return null
+        val lower = clean.lowercase()
+        if (listOf("password", "otp", "pin", "card number", "cvv").any { lower.contains(it) }) return null
+        val arr = loadArray()
+        for (i in 0 until arr.length()) {
+            val o = arr.getJSONObject(i)
+            if (o.optLong("id") == id) {
+                val now = System.currentTimeMillis()
+                o.put("category", category)
+                o.put("text", clean)
+                o.put("updated", now)
+                saveArray(arr)
+                return Memory(id, category, clean, o.optLong("created"), now)
+            }
+        }
+        return null
+    }
+
     fun delete(id: Long): Boolean {
         val arr = loadArray()
         for (i in 0 until arr.length()) {

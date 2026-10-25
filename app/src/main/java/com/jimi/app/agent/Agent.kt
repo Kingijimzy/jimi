@@ -1,6 +1,7 @@
 package com.jimi.app.agent
 
 import android.content.Context
+import com.jimi.app.memory.ExecutionLearningStore
 import com.jimi.app.memory.MemoryStore
 import com.jimi.app.memory.TaskStore
 import com.jimi.app.prefs.AppPrefs
@@ -29,6 +30,7 @@ class Agent(
     private val router = ModelRouter(context)
     private val phoneTools = PhoneTools(context)
     private val memory = MemoryStore(context)
+    private val executionLearning = ExecutionLearningStore(context)
     private val tasks = TaskStore(context)
     private val prefs = AppPrefs(context)
     private val gameSentinel = GameSentinel(context)
@@ -107,6 +109,13 @@ class Agent(
                     if (toolResult != null) {
                         OrbStateManager.acting()
                         onStatus("Acting...")
+                        val usedTool = raw.lines()
+                            .firstOrNull { it.trim().startsWith("TOOL:", ignoreCase = true) }
+                            ?.substringAfter(":")
+                            ?.trim()
+                            ?.substringBefore(" ")
+                            .orEmpty()
+                        executionLearning.record(usedTool, toolResult.ok, toolResult.message)
                         onMessage(toolResult.message)
                         if (!toolResult.ok) {
                             if (toolResult.message == lastFailedToolResult) repeatedFailureCount++ else {
@@ -339,6 +348,49 @@ class Agent(
             onMessage(ScreenTools.statusMessage()); return true
         }
 
+        if (lower.startsWith("forget ") || lower.startsWith("delete memory ")) {
+            val query = if (lower.startsWith("delete memory ")) original.substringAfter("memory ").trim()
+                else original.substringAfter(" ").trim()
+            val matches = memory.search(query).filter { it.text.contains(query, ignoreCase = true) }
+            when {
+                query.isBlank() -> onMessage("Tell me a phrase from the memory you want me to forget.")
+                matches.size == 1 -> {
+                    memory.delete(matches.first().id)
+                    onMessage("Forgot that memory: ${matches.first().text}")
+                }
+                matches.size > 1 -> onMessage("Several memories match. Use a more specific phrase: " + matches.take(5).joinToString(" | ") { it.text })
+                else -> onMessage("I couldn't find a memory matching that phrase.")
+            }
+            return true
+        }
+        if (lower.startsWith("edit memory ") || lower.startsWith("change memory ")) {
+            val body = original.substringAfter("memory ", "")
+            val parts = body.split(Regex("(?i)\\s+to\\s+"), limit = 2)
+            if (parts.size != 2 || parts[0].isBlank() || parts[1].isBlank()) {
+                onMessage("Use: edit memory <existing phrase> to <replacement memory>")
+                return true
+            }
+            val query = parts[0].trim()
+            val matches = memory.search(query).filter { it.text.contains(query, ignoreCase = true) }
+            when {
+                matches.size == 1 -> {
+                    val updated = memory.update(matches.first().id, matches.first().category, parts[1])
+                    onMessage(if (updated != null) "Updated that memory." else "I couldn't update it. The replacement may contain sensitive information or be too long.")
+                }
+                matches.size > 1 -> onMessage("Several memories match. Use a more specific phrase: " + matches.take(5).joinToString(" | ") { it.text })
+                else -> onMessage("I couldn't find a memory matching that phrase.")
+            }
+            return true
+        }
+        if (lower in listOf("what mistakes did you learn", "show execution lessons", "what did you learn from mistakes")) {
+            onMessage("Recent execution lessons:\n" + executionLearning.promptBlock())
+            return true
+        }
+        if (lower in listOf("clear learned mistakes", "clear execution lessons")) {
+            executionLearning.clear()
+            onMessage("Cleared the local execution-failure lessons.")
+            return true
+        }
         if (lower.startsWith("remember ")) {
             val fact = original.removePrefix("remember ").removePrefix("Remember ").trim()
             val m = memory.add("fact", fact)
@@ -488,6 +540,9 @@ Teaching: ${if (TeachMode.isRecording()) TeachMode.status() else "off"}
 
 Memory:
 ${memory.promptBlock()}
+
+Recent execution lessons (normalized; no raw screen text or arguments):
+${executionLearning.promptBlock()}
 
 Open tasks:
 ${tasks.promptBlock()}
