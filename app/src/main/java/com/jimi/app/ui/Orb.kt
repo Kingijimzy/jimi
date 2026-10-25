@@ -10,26 +10,19 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.size as boxSize
+import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import com.jimi.app.ui.theme.JimiAccent
+import com.jimi.app.ui.theme.JimiDotMint
 import com.jimi.app.ui.theme.JimiError
-import com.jimi.app.ui.theme.JimiPink
-import com.jimi.app.ui.theme.JimiPrimary
-import com.jimi.app.ui.theme.JimiSecondary
+import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin
 
@@ -38,8 +31,8 @@ enum class OrbState {
 }
 
 /**
- * New 3D-style abstract orb (ChatAI / agentic sphere language):
- * mesh latitude lines, dual energy rings, aurora blob core, state motion.
+ * Orion/Jimi assistant visual: a lightweight 24 × 11 dot-matrix face.
+ * It deliberately avoids a glass orb or heavy 3D effects on low-memory phones.
  */
 @Composable
 fun JimiOrb(
@@ -47,208 +40,97 @@ fun JimiOrb(
     size: Dp = 200.dp,
     modifier: Modifier = Modifier
 ) {
-    val infinite = rememberInfiniteTransition(label = "orb3d")
-
-    val breath by infinite.animateFloat(
-        0.96f, 1.04f,
-        infiniteRepeatable(tween(3000, easing = FastOutSlowInEasing), RepeatMode.Reverse),
-        label = "breath"
+    val transition = rememberInfiniteTransition(label = "matrix-face")
+    val phase by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = (PI * 2).toFloat(),
+        animationSpec = infiniteRepeatable(
+            animation = tween(
+                durationMillis = when (state) {
+                    OrbState.THINKING -> 1700
+                    OrbState.ACTING -> 900
+                    OrbState.SPEAKING -> 500
+                    else -> 2200
+                },
+                easing = LinearEasing
+            ),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "matrix-phase"
     )
-    val spin by infinite.animateFloat(
-        0f, 360f,
-        infiniteRepeatable(tween(18000, easing = LinearEasing), RepeatMode.Restart),
-        label = "spin"
+    val breathe by transition.animateFloat(
+        initialValue = 0.82f,
+        targetValue = 1.08f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1600, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "matrix-breathe"
     )
-    val spin2 by infinite.animateFloat(
-        0f, -360f,
-        infiniteRepeatable(tween(11000, easing = LinearEasing), RepeatMode.Restart),
-        label = "spin2"
-    )
-    val pulse by infinite.animateFloat(
-        0.9f, 1.12f,
-        infiniteRepeatable(tween(700, easing = FastOutSlowInEasing), RepeatMode.Reverse),
-        label = "pulse"
-    )
-    val wave by infinite.animateFloat(
-        0f, 1f,
-        infiniteRepeatable(tween(1600, easing = LinearEasing), RepeatMode.Restart),
-        label = "wave"
-    )
-    val mesh by infinite.animateFloat(
-        0f, 1f,
-        infiniteRepeatable(tween(8000, easing = LinearEasing), RepeatMode.Restart),
-        label = "mesh"
-    )
-
-    val scale = when (state) {
-        OrbState.IDLE -> breath
-        OrbState.LISTENING -> breath * 1.06f
-        OrbState.THINKING -> 1.03f
-        OrbState.SPEAKING -> pulse
-        OrbState.ACTING -> pulse * 1.05f
-        OrbState.ERROR -> breath
-    }
-
-    val teal = JimiPrimary
-    val violet = JimiSecondary
-    val blue = JimiAccent
-    val c1 = when (state) {
-        OrbState.IDLE -> teal
-        OrbState.LISTENING -> teal
-        OrbState.THINKING -> violet
-        OrbState.SPEAKING -> blue
-        OrbState.ACTING -> JimiPink
-        OrbState.ERROR -> JimiError
-    }
-    val c2 = when (state) {
-        OrbState.IDLE -> violet
-        OrbState.LISTENING -> blue
-        OrbState.THINKING -> teal
-        OrbState.SPEAKING -> teal
-        OrbState.ACTING -> teal
-        OrbState.ERROR -> Color(0xFFFF9AA5)
-    }
 
     Box(
         contentAlignment = Alignment.Center,
-        modifier = modifier.boxSize(size)
+        modifier = modifier.size(size)
     ) {
-        Canvas(modifier = Modifier.fillMaxSize()) {
-            val w = this.size.width
-            val h = this.size.height
-            val center = Offset(w / 2f, h / 2f)
-            val r = minOf(w, h) / 2.5f * scale
+        Canvas(Modifier.fillMaxSize()) {
+            drawDotMatrixFace(state, phase, breathe)
+        }
+    }
+}
 
-            // Soft ambient glow
+private fun DrawScope.drawDotMatrixFace(state: OrbState, phase: Float, breathe: Float) {
+    val columns = 24
+    val rows = 11
+    val spacing = minOf(size.width / 26f, size.height / 13f)
+    val radius = spacing * 0.19f
+    val gridWidth = (columns - 1) * spacing
+    val gridHeight = (rows - 1) * spacing
+    val startX = (size.width - gridWidth) / 2f
+    val startY = (size.height - gridHeight) / 2f
+    val baseColor = if (state == OrbState.ERROR) JimiError else JimiDotMint
+
+    for (row in 0 until rows) {
+        for (col in 0 until columns) {
+            val dx = (col - 11.5f) / 11.5f
+            val dy = (row - 5f) / 5.2f
+            if (dx * dx + dy * dy > 1.05f) continue
+
+            val leftEye = row in 4..5 && col in 6..8
+            val rightEye = row in 4..5 && col in 15..17
+            val mouth = row in 7..8 && col in 9..14
+            val wave = (sin(phase * 1.6f + col * 0.37f - row * 0.21f) + 1f) / 2f
+            val energy = when (state) {
+                OrbState.IDLE -> 0.28f + wave * 0.20f
+                OrbState.LISTENING -> 0.38f + wave * 0.62f
+                OrbState.THINKING -> 0.25f + (0.75f * (1f - kotlin.math.abs(((col / 23f + phase / (PI * 2f)) % 1f) * 2f - 1f)))
+                OrbState.SPEAKING -> 0.30f + wave * 0.70f
+                OrbState.ACTING -> if ((col + row) % 4 == (phase * 2f).toInt() % 4) 1f else 0.34f + wave * 0.18f
+                OrbState.ERROR -> 0.45f + wave * 0.45f
+            }
+            val facialDetail = when {
+                leftEye || rightEye -> 0.18f + wave * 0.12f
+                mouth -> 0.22f + wave * 0.18f
+                else -> 1f
+            }
+            val alpha = (energy * facialDetail * breathe).coerceIn(0.08f, 1f)
+            val radiusScale = when (state) {
+                OrbState.LISTENING, OrbState.SPEAKING -> 0.88f + wave * 0.28f
+                OrbState.THINKING -> 0.78f + wave * 0.32f
+                OrbState.ACTING -> if ((col + row) % 4 == (phase * 2f).toInt() % 4) 1.25f else 0.8f
+                else -> 0.9f + wave * 0.12f
+            }
+            val point = Offset(startX + col * spacing, startY + row * spacing)
+
+            // Small, low-cost glow underneath the dot; no blur layers or glass surface.
             drawCircle(
-                brush = Brush.radialGradient(
-                    listOf(c1.copy(alpha = 0.28f), c2.copy(alpha = 0.1f), Color.Transparent),
-                    center, r * 2.4f
-                ),
-                radius = r * 2.2f,
-                center = center
+                color = baseColor.copy(alpha = alpha * 0.12f),
+                radius = radius * 2.3f * radiusScale,
+                center = point
             )
-
-            // Listening rings
-            if (state == OrbState.LISTENING || state == OrbState.SPEAKING) {
-                for (i in 0..2) {
-                    val t = ((wave + i / 3f) % 1f)
-                    drawCircle(
-                        color = c1.copy(alpha = (1f - t) * 0.35f),
-                        radius = r * (1.2f + t * 0.9f),
-                        center = center,
-                        style = Stroke(width = 2f)
-                    )
-                }
-            }
-
-            // Outer energy ring
-            rotate(spin, center) {
-                drawArc(
-                    brush = Brush.sweepGradient(listOf(c1, c2, Color.Transparent, c1), center),
-                    startAngle = 0f,
-                    sweepAngle = 270f,
-                    useCenter = false,
-                    topLeft = Offset(center.x - r * 1.32f, center.y - r * 1.32f),
-                    size = Size(r * 2.64f, r * 2.64f),
-                    style = Stroke(width = 3f, cap = StrokeCap.Round)
-                )
-            }
-            rotate(spin2, center) {
-                drawArc(
-                    color = c2.copy(alpha = 0.55f),
-                    startAngle = 40f,
-                    sweepAngle = 120f,
-                    useCenter = false,
-                    topLeft = Offset(center.x - r * 1.18f, center.y - r * 1.18f),
-                    size = Size(r * 2.36f, r * 2.36f),
-                    style = Stroke(width = 2f, cap = StrokeCap.Round)
-                )
-            }
-
-            // Mesh latitude lines (3D sphere feel)
-            val latCount = 5
-            for (i in 1 until latCount) {
-                val frac = i / latCount.toFloat()
-                val yOff = (frac - 0.5f) * r * 1.6f
-                val rx = r * sin(Math.PI * frac).toFloat() * 0.95f
-                if (rx > 4f) {
-                    drawOval(
-                        color = Color.White.copy(alpha = 0.08f + 0.04f * sin(mesh * Math.PI * 2 + i).toFloat()),
-                        topLeft = Offset(center.x - rx, center.y + yOff - 1.5f),
-                        size = Size(rx * 2f, 3f),
-                        style = Stroke(width = 1.2f)
-                    )
-                }
-            }
-            // Longitude arcs
-            for (i in 0 until 6) {
-                val ang = i * 30f + spin * 0.15f
-                rotate(ang, center) {
-                    drawArc(
-                        color = Color.White.copy(alpha = 0.07f),
-                        startAngle = -70f,
-                        sweepAngle = 140f,
-                        useCenter = false,
-                        topLeft = Offset(center.x - r * 0.95f, center.y - r * 0.95f),
-                        size = Size(r * 1.9f, r * 1.9f),
-                        style = Stroke(width = 1f)
-                    )
-                }
-            }
-
-            // Thinking satellites
-            if (state == OrbState.THINKING || state == OrbState.ACTING) {
-                for (i in 0 until 8) {
-                    val ang = Math.toRadians((spin * 1.5f + i * 45f).toDouble())
-                    val dist = r * 1.38f
-                    drawCircle(
-                        color = if (i % 2 == 0) c1 else c2,
-                        radius = 3.5f,
-                        center = Offset(
-                            center.x + cos(ang).toFloat() * dist,
-                            center.y + sin(ang).toFloat() * dist
-                        )
-                    )
-                }
-            }
-
-            // Core glass sphere
             drawCircle(
-                brush = Brush.radialGradient(
-                    listOf(
-                        Color.White.copy(alpha = 0.95f),
-                        c1.copy(alpha = 0.9f),
-                        c2.copy(alpha = 0.65f),
-                        blue.copy(alpha = 0.35f),
-                        Color(0xFF0B0B0F).copy(alpha = 0.4f)
-                    ),
-                    Offset(center.x - r * 0.2f, center.y - r * 0.28f),
-                    r * 1.4f
-                ),
-                radius = r,
-                center = center
-            )
-
-            // Specular
-            val hi = Offset(center.x - r * 0.3f, center.y - r * 0.38f)
-            drawCircle(
-                brush = Brush.radialGradient(
-                    listOf(Color.White.copy(alpha = 0.75f), Color.Transparent),
-                    hi, r * 0.42f
-                ),
-                radius = r * 0.38f,
-                center = hi
-            )
-
-            // Inner nucleus
-            drawCircle(
-                brush = Brush.radialGradient(
-                    listOf(Color.White, c1.copy(alpha = 0.8f), Color.Transparent),
-                    center, r * 0.35f
-                ),
-                radius = r * 0.22f,
-                center = center
+                color = baseColor.copy(alpha = alpha),
+                radius = radius * radiusScale,
+                center = point
             )
         }
     }

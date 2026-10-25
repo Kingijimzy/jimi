@@ -128,6 +128,7 @@ fun JimiScreen(onOpenSettings: () -> Unit) {
     }
 
     var inputText by remember { mutableStateOf("") }
+    var isLiveCall by remember { mutableStateOf(false) }
     var messages by remember { mutableStateOf(listOf<ChatMessage>()) }
     var statusText by remember { mutableStateOf("Ready") }
     var pending by remember { mutableStateOf<PendingAction?>(null) }
@@ -188,8 +189,8 @@ fun JimiScreen(onOpenSettings: () -> Unit) {
             onResult = { text -> submit(text) },
             onError = { err ->
                 messages = messages + ChatMessage(err, false)
-                OrbStateManager.idle()
-                statusText = "Ready"
+                OrbStateManager.error()
+                statusText = err
             },
             onListening = {
                 tts.stop()
@@ -203,11 +204,18 @@ fun JimiScreen(onOpenSettings: () -> Unit) {
     val micPermission = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
-        if (granted) voice.start()
-        else messages = messages + ChatMessage("Microphone permission required.", false)
+        if (granted) {
+            isLiveCall = true
+            voice.start()
+        } else {
+            isLiveCall = false
+            messages = messages + ChatMessage("Microphone permission required.", false)
+        }
     }
 
     fun startVoice() {
+        isLiveCall = true
+        statusText = "Starting microphone…"
         val granted = ContextCompat.checkSelfPermission(
             context, Manifest.permission.RECORD_AUDIO
         ) == PackageManager.PERMISSION_GRANTED
@@ -230,6 +238,7 @@ fun JimiScreen(onOpenSettings: () -> Unit) {
         PendingActionBus.cancel()
         OrbStateManager.idle()
         statusText = "Ready"
+        isLiveCall = false
         messages = messages + ChatMessage("Stopped.", false)
     }
 
@@ -275,45 +284,47 @@ fun JimiScreen(onOpenSettings: () -> Unit) {
             .statusBarsPadding()
             .navigationBarsPadding()
     ) {
-        // ── Top bar ──
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = 12.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    modifier = Modifier
-                        .size(10.dp)
-                        .clip(CircleShape)
-                        .background(
-                            Brush.linearGradient(listOf(JimiPrimary, JimiSecondary))
-                        )
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    "Jimi",
-                    color = JimiText,
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.SemiBold
-                )
-            }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                if (isBusy) {
-                    IconButton(onClick = { stopAll() }) {
-                        Icon(Icons.Default.Stop, "Stop", tint = JimiError)
-                    }
+        if (!isLiveCall) {
+            // ── Top bar ──
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = 12.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(10.dp)
+                            .clip(CircleShape)
+                            .background(
+                                Brush.linearGradient(listOf(JimiPrimary, JimiSecondary))
+                            )
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        "Jimi",
+                        color = JimiText,
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
                 }
-                IconButton(onClick = onOpenSettings) {
-                    Icon(Icons.Default.Settings, "Settings", tint = JimiTextDim)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (isBusy) {
+                        IconButton(onClick = { stopAll() }) {
+                            Icon(Icons.Default.Stop, "Stop", tint = JimiError)
+                        }
+                    }
+                    IconButton(onClick = onOpenSettings) {
+                        Icon(Icons.Default.Settings, "Settings", tint = JimiTextDim)
+                    }
                 }
             }
         }
 
         // Thin setup strip (never covers orb)
-        if (!a11yOn || !hasApiKey) {
+        if (!isLiveCall && (!a11yOn || !hasApiKey)) {
             SetupStrip(
                 a11yOn = a11yOn,
                 hasApiKey = hasApiKey,
@@ -322,7 +333,21 @@ fun JimiScreen(onOpenSettings: () -> Unit) {
             )
         }
 
-        if (isHome) {
+        if (isLiveCall) {
+            LiveCallScreen(
+                state = orbState,
+                status = statusText,
+                caption = messages.lastOrNull()?.text.orEmpty(),
+                onEnd = { stopAll() },
+                onMic = { startVoice() },
+                onChat = {
+                    voice.stop()
+                    OrbStateManager.idle()
+                    statusText = "Ready"
+                    isLiveCall = false
+                }
+            )
+        } else if (isHome) {
             // ════════ HOME — companion landing ════════
             Column(
                 modifier = Modifier
@@ -471,13 +496,97 @@ fun JimiScreen(onOpenSettings: () -> Unit) {
             }
         }
 
-        // Composer (always)
-        ComposerBar(
-            inputText = inputText,
-            onInputChange = { inputText = it },
-            onSend = { submit(inputText) },
-            onMic = { startVoice() }
+        if (!isLiveCall) {
+            ComposerBar(
+                inputText = inputText,
+                onInputChange = { inputText = it },
+                onSend = { submit(inputText) },
+                onMic = { startVoice() }
+            )
+        }
+    }
+}
+
+@Composable
+private fun LiveCallScreen(
+    state: OrbState,
+    status: String,
+    caption: String,
+    onEnd: () -> Unit,
+    onMic: () -> Unit,
+    onChat: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 24.dp, vertical = 16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.SpaceBetween
+    ) {
+        Text(
+            "ORION · LIVE",
+            color = JimiTextDim,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.SemiBold,
+            letterSpacing = 2.sp
         )
+        JimiOrb(state = state, size = 240.dp)
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(
+                status.ifBlank { "Ready" },
+                color = JimiText,
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+            Text(
+                caption,
+                color = JimiTextDim,
+                fontSize = 14.sp,
+                textAlign = TextAlign.Center,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                lineHeight = 20.sp
+            )
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceEvenly,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                IconButton(
+                    onClick = onEnd,
+                    modifier = Modifier
+                        .size(56.dp)
+                        .clip(CircleShape)
+                        .background(JimiCard)
+                ) { Icon(Icons.Default.Stop, "End call", tint = JimiError) }
+                Text("End", color = JimiTextDim, fontSize = 11.sp)
+            }
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                IconButton(
+                    onClick = onMic,
+                    modifier = Modifier
+                        .size(64.dp)
+                        .clip(CircleShape)
+                        .background(JimiCardElevated)
+                ) { Icon(Icons.Default.Mic, "Speak", tint = JimiDotMint) }
+                Text("Mic", color = JimiTextDim, fontSize = 11.sp)
+            }
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                IconButton(
+                    onClick = onChat,
+                    modifier = Modifier
+                        .size(56.dp)
+                        .clip(CircleShape)
+                        .background(JimiCard)
+                ) { Icon(Icons.Default.Send, "Chat", tint = JimiText) }
+                Text("Chat", color = JimiTextDim, fontSize = 11.sp)
+            }
+        }
     }
 }
 
