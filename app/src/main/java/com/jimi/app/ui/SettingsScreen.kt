@@ -42,7 +42,7 @@ fun SettingsScreen(
 
     val providers = listOf(
         "gemini" to "Gemini — best free",
-        "groq" to "Groq — fast free",
+        "groq" to "Groq — metered",
         "openrouter" to "OpenRouter — free (limited)",
         "deepseek" to "DeepSeek — paid later"
     )
@@ -52,6 +52,7 @@ fun SettingsScreen(
     }
     var ttsEnabled by remember { mutableStateOf(appPrefs.ttsEnabled) }
     var confirmSensitive by remember { mutableStateOf(appPrefs.confirmSensitive) }
+    var allowPaidProviders by remember { mutableStateOf(appPrefs.allowPaidProviders) }
     var macros by remember { mutableStateOf(MacroStore.list(context)) }
     var orbOn by remember { mutableStateOf(FloatingOrbService.isRunning) }
     var canOverlay by remember { mutableStateOf(FloatingOrbService.canDrawOverlays(context)) }
@@ -216,6 +217,18 @@ fun SettingsScreen(
                 )
                 Spacer(modifier = Modifier.height(12.dp))
             }
+
+            SectionLabel("BILLING CONTROL")
+            ToggleRow(
+                title = "Allow metered providers",
+                subtitle = if (allowPaidProviders) "Paid/metered providers may be used after free providers are exhausted." else "Off — only free-tier providers are used automatically.",
+                checked = allowPaidProviders,
+                onCheckedChange = { enabled ->
+                    allowPaidProviders = enabled
+                    appPrefs.allowPaidProviders = enabled
+                }
+            )
+            Spacer(modifier = Modifier.height(12.dp))
 
             TextButton(onClick = { appPrefs.onboardingDismissed = false }) {
                 Text("Show engine setup again", color = JimiPrimary, fontSize = 13.sp)

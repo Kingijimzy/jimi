@@ -3,6 +3,8 @@ package com.jimi.app.agent
 import android.content.Context
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import com.jimi.app.prefs.ApiKeyVault
+import com.jimi.app.prefs.AppPrefs
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -39,19 +41,14 @@ class ModelRouter(private val context: Context) {
             id = "groq",
             name = "Groq",
             baseUrl = "https://api.groq.com/openai/v1",
-            models = listOf("llama-3.3-70b-versatile", "llama-3.1-8b-instant"),
-            tier = Tier.FREE
+            models = listOf("openai/gpt-oss-120b"),
+            tier = Tier.PAID
         ),
         Provider(
             id = "gemini",
             name = "Gemini (Google AI Studio)",
             baseUrl = "https://generativelanguage.googleapis.com/v1beta",
-            models = listOf(
-                "gemini-2.0-flash-lite",
-                "gemini-2.0-flash",
-                "gemini-1.5-flash",
-                "gemini-1.5-flash-latest"
-            ),
+            models = listOf("gemini-3.1-flash-lite"),
             tier = Tier.FREE,
             style = ApiStyle.GEMINI_NATIVE,
             hasVision = true
@@ -60,12 +57,7 @@ class ModelRouter(private val context: Context) {
             id = "openrouter",
             name = "OpenRouter",
             baseUrl = "https://openrouter.ai/api/v1",
-            models = listOf(
-                "google/gemma-2-9b-it:free",
-                "meta-llama/llama-3.2-3b-instruct:free",
-                "qwen/qwen-2.5-7b-instruct:free",
-                "mistralai/mistral-7b-instruct:free"
-            ),
+            models = listOf("openai/gpt-oss-20b:free"),
             tier = Tier.FREE
         ),
         Provider(
@@ -85,31 +77,41 @@ class ModelRouter(private val context: Context) {
 
     private val jsonMedia = "application/json; charset=utf-8".toMediaType()
 
+    private val keyVault by lazy { ApiKeyVault(context) }
+
     fun getKey(providerId: String): String {
-        val prefs = context.getSharedPreferences("jimi_keys", Context.MODE_PRIVATE)
-        return prefs.getString("key_$providerId", "")?.trim().orEmpty()
+        val encrypted = keyVault.get(providerId)
+        if (encrypted.isNotBlank()) return encrypted
+        val legacyPrefs = context.getSharedPreferences("jimi_keys", Context.MODE_PRIVATE)
+        val legacy = legacyPrefs.getString("key_$providerId", "")?.trim().orEmpty()
+        if (legacy.isNotBlank() && keyVault.put(providerId, legacy)) {
+            legacyPrefs.edit().remove("key_$providerId").apply()
+            return legacy
+        }
+        return ""
     }
 
     fun setKey(providerId: String, key: String) {
-        context.getSharedPreferences("jimi_keys", Context.MODE_PRIVATE)
-            .edit()
-            .putString("key_$providerId", key.trim())
-            .apply()
+        val clean = key.trim()
+        if (keyVault.put(providerId, clean)) {
+            context.getSharedPreferences("jimi_keys", Context.MODE_PRIVATE)
+                .edit().remove("key_$providerId").apply()
+        }
     }
 
     fun availableProviders(): List<Provider> =
         providers.filter { getKey(it.id).isNotEmpty() }
 
     fun bestProvider(needVision: Boolean = false): Provider? {
-        val available = availableProviders()
-        if (available.isEmpty()) return null
-        val free = available.filter { it.tier == Tier.FREE && (!needVision || it.hasVision) }
+        val available = availableProviders().filter { !needVision || it.hasVision }
+        val free = available.filter { it.tier == Tier.FREE }
         if (free.isNotEmpty()) {
             return free.firstOrNull { it.id == "gemini" }
-                ?: free.firstOrNull { it.id == "groq" }
+                ?: free.firstOrNull { it.id == "openrouter" }
                 ?: free.first()
         }
-        return available.firstOrNull { it.tier == Tier.PAID && (!needVision || it.hasVision) }
+        if (!AppPrefs(context).allowPaidProviders) return null
+        return available.firstOrNull { it.tier == Tier.PAID }
     }
 
     suspend fun chat(
@@ -121,11 +123,14 @@ class ModelRouter(private val context: Context) {
             ?: return@withContext "No AI provider configured. Open Settings and paste a free key from Google AI Studio (Gemini) or Groq."
 
         // Use one primary provider. Escalate to another configured free provider only for HTTP 429.
+        val allowPaid = AppPrefs(context).allowPaidProviders
         val candidates = buildList {
             add(primary)
             addAll(availableProviders().filter {
-                it.id != primary.id && it.tier == Tier.FREE && (!needVision || it.hasVision)
-            })
+                it.id != primary.id &&
+                    (it.tier == Tier.FREE || allowPaid) &&
+                    (!needVision || it.hasVision)
+            }.sortedBy { if (it.tier == Tier.FREE) 0 else 1 })
         }.distinctBy { it.id }
         var rateLimitMessage: String? = null
         for (provider in candidates) {
