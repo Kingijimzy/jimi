@@ -11,6 +11,12 @@ class ToolRegistry(private val context: Context) {
 
     data class ToolResult(val ok: Boolean, val message: String)
 
+    private fun fromActionMessage(message: String): ToolResult {
+        val lower = message.lowercase()
+        val failureMarkers = listOf("couldn't", "could not", "failed", "failure", "not found", "not enabled", "not available", "unavailable", "accessibility is off", "screen may have changed", "error:")
+        return ToolResult(failureMarkers.none { lower.contains(it) }, message)
+    }
+
     fun catalogForPrompt(): String {
         return """
 Available tools (reply with a single line TOOL: name {json} when you need one):
@@ -52,44 +58,44 @@ Only use a tool when the user wants an action. Otherwise just answer.
                 "open_app" -> {
                     val n = args.optString("name", "")
                     if (n.isBlank()) ToolResult(false, "Missing app name")
-                    else ToolResult(true, phone.openApp(n))
+                    else fromActionMessage(phone.openApp(n))
                 }
                 "open_url" -> {
                     val u = args.optString("url", "")
                     if (u.isBlank()) ToolResult(false, "Missing url")
-                    else ToolResult(true, phone.openUrl(u))
+                    else fromActionMessage(phone.openUrl(u))
                 }
                 "web_search" -> {
                     val q = args.optString("query", "")
                     if (q.isBlank()) ToolResult(false, "Missing query")
-                    else ToolResult(true, phone.webSearch(q))
+                    else fromActionMessage(phone.webSearch(q))
                 }
                 "open_settings" -> {
-                    ToolResult(true, phone.openSettings(args.optString("page", "main")))
+                    fromActionMessage(phone.openSettings(args.optString("page", "main")))
                 }
                 "click_text" -> {
                     val t = args.optString("text", "")
                     if (t.isBlank()) ToolResult(false, "Missing text")
-                    else ToolResult(true, ScreenTools.clickText(t))
+                    else fromActionMessage(ScreenTools.clickText(t))
                 }
                 "swipe" -> {
                     val d = args.optString("direction", "down")
-                    ToolResult(true, ScreenTools.swipe(d))
+                    fromActionMessage(ScreenTools.swipe(d))
                 }
-                "go_home" -> ToolResult(true, ScreenTools.goHome())
-                "go_back" -> ToolResult(true, ScreenTools.goBack())
-                "read_screen" -> ToolResult(true, ScreenTools.screenSummary())
-                "network_status" -> ToolResult(true, network.status())
-                "battery" -> ToolResult(true, phone.batteryStatus())
-                "time" -> ToolResult(true, phone.currentTime())
+                "go_home" -> fromActionMessage(ScreenTools.goHome())
+                "go_back" -> fromActionMessage(ScreenTools.goBack())
+                "read_screen" -> fromActionMessage(ScreenTools.screenSummary())
+                "network_status" -> fromActionMessage(network.status())
+                "battery" -> fromActionMessage(phone.batteryStatus())
+                "time" -> fromActionMessage(phone.currentTime())
                 "flashlight" -> {
                     val on = args.optBoolean("on", true)
-                    ToolResult(true, phone.flashlight(on))
+                    fromActionMessage(phone.flashlight(on))
                 }
                 "volume" -> {
                     val action = args.optString("action", "up")
                     val pct = args.optInt("percent", 50)
-                    ToolResult(true, phone.setVolume(action, pct))
+                    fromActionMessage(phone.setVolume(action, pct))
                 }
                 else -> ToolResult(false, "Unknown tool: $name")
             }

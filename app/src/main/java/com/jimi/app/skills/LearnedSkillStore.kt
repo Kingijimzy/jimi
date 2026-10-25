@@ -34,7 +34,7 @@ object LearnedSkillStore {
 
     fun recordSuccess(context: Context, id: String) {
         val list = all(context).map {
-            if (it.id == id) it.copy(successCount = it.successCount + 1, version = it.version + 1)
+            if (it.id == id) it.copy(successCount = it.successCount + 1)
             else it
         }
         write(context, list)
@@ -54,18 +54,20 @@ object LearnedSkillStore {
     fun fromMacro(context: Context, macroName: String): Skill? {
         val macro = MacroStore.find(context, macroName) ?: return null
         val id = "learned_" + macroName.lowercase().replace(Regex("[^a-z0-9]+"), "_")
+        val previous = all(context).firstOrNull { it.id == id }
         val skill = Skill(
             id = id,
             name = macroName.replaceFirstChar { it.uppercase() },
             description = "Learned routine: $macroName (${macro.steps.size} steps). Improves with use.",
             category = "learned",
-            version = 1,
+            version = previous?.version ?: 1,
             isAiGenerated = true,
             triggerPhrases = listOf(macroName.lowercase(), "run $macroName", "do $macroName"),
             steps = macro.steps.map {
                 SkillStep(tool = it.tool, args = it.args, description = it.tool)
             },
-            successCount = 1
+            successCount = (previous?.successCount ?: 0) + 1,
+            failCount = previous?.failCount ?: 0
         )
         save(context, skill)
         return skill
@@ -89,6 +91,13 @@ object LearnedSkillStore {
                     .put("triggerPhrases", JSONArray(s.triggerPhrases))
                     .put("successCount", s.successCount)
                     .put("failCount", s.failCount)
+                    .put("steps", JSONArray().apply {
+                        s.steps.forEach { step ->
+                            val argsObject = JSONObject()
+                            step.args.forEach { (key, value) -> argsObject.put(key, value) }
+                            put(JSONObject().put("tool", step.tool).put("args", argsObject).put("description", step.description))
+                        }
+                    })
             )
         }
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -99,6 +108,21 @@ object LearnedSkillStore {
         return try {
             val phrases = o.optJSONArray("triggerPhrases") ?: JSONArray()
             val phraseList = (0 until phrases.length()).map { phrases.getString(it) }
+            val savedSteps = o.optJSONArray("steps") ?: JSONArray()
+            val stepList = (0 until savedSteps.length()).mapNotNull { index ->
+                try {
+                    val item = savedSteps.getJSONObject(index)
+                    val argsObject = item.optJSONObject("args") ?: JSONObject()
+                    val args = mutableMapOf<String, Any?>()
+                    argsObject.keys().forEach { key ->
+                        val value = argsObject.get(key)
+                        args[key] = if (value === JSONObject.NULL) null else value
+                    }
+                    SkillStep(tool = item.getString("tool"), args = args, description = item.optString("description"))
+                } catch (_: Exception) {
+                    null
+                }
+            }
             Skill(
                 id = o.getString("id"),
                 name = o.getString("name"),
@@ -107,6 +131,7 @@ object LearnedSkillStore {
                 version = o.optInt("version", 1),
                 isAiGenerated = o.optBoolean("isAiGenerated", true),
                 triggerPhrases = phraseList,
+                steps = stepList,
                 successCount = o.optInt("successCount", 0),
                 failCount = o.optInt("failCount", 0)
             )

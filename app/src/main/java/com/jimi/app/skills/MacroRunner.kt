@@ -43,6 +43,24 @@ class MacroRunner(private val context: Context) {
         return "Macro \"${macro.name}\" finished successfully.$extra"
     }
 
+    suspend fun runSkill(skill: Skill, onProgress: (String) -> Unit = {}): String {
+        if (skill.steps.isEmpty()) return "Skill \"${skill.name}\" has no saved steps and cannot run yet."
+        val svc = JimiAccessibilityService.instance
+            ?: return "Accessibility is off. Enable Jimi in Accessibility settings before running \"${skill.name}\"."
+        onProgress("Running learned skill \"${skill.name}\" (${skill.steps.size} steps)...")
+        for ((index, step) in skill.steps.withIndex()) {
+            onProgress("Step ${index + 1}/${skill.steps.size}: ${step.description.ifBlank { step.tool }}")
+            val ok = executeStep(svc, MacroStore.MacroStep(step.tool, step.args, 600))
+            if (!ok) {
+                LearnedSkillStore.recordFail(context, skill.id)
+                return "Skill \"${skill.name}\" stopped at step ${index + 1} (${step.tool}). The action was not confirmed; inspect the screen before retrying."
+            }
+            delay(600)
+        }
+        LearnedSkillStore.recordSuccess(context, skill.id)
+        return "Skill \"${skill.name}\" completed its saved steps. This confirms the actions were accepted, not that every external app reached its final goal."
+    }
+
     private suspend fun executeStep(
         svc: JimiAccessibilityService,
         step: MacroStore.MacroStep
@@ -50,13 +68,11 @@ class MacroRunner(private val context: Context) {
         return when (step.tool.lowercase()) {
             "open_app" -> {
                 val name = step.args["name"]?.toString() ?: return false
-                phone.openApp(name)
-                true
+                actionMessageSucceeded(phone.openApp(name))
             }
             "open_url" -> {
                 val url = step.args["url"]?.toString() ?: return false
-                phone.openUrl(url)
-                true
+                actionMessageSucceeded(phone.openUrl(url))
             }
             "tap" -> {
                 val x = (step.args["x"] as? Number)?.toFloat() ?: return false
@@ -87,6 +103,12 @@ class MacroRunner(private val context: Context) {
             }
             else -> true
         }
+    }
+
+    private fun actionMessageSucceeded(message: String): Boolean {
+        val lower = message.lowercase()
+        val failureMarkers = listOf("couldn't", "could not", "failed", "failure", "not found", "not available", "unavailable", "error:")
+        return failureMarkers.none { lower.contains(it) }
     }
 
     fun seedFcDailyExample(context: Context) {

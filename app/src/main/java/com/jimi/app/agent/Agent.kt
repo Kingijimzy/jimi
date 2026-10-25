@@ -76,6 +76,12 @@ class Agent(
                 if (handleLocal(lower, userGoal)) return@launch
 
                 val skill = SkillRegistry.findByTrigger(lower)
+                if (skill?.category == "learned") {
+                    OrbStateManager.acting()
+                    onStatus("Running learned skill: ${skill.name}...")
+                    onMessage(macroRunner.runSkill(skill) { onStatus(it) })
+                    return@launch
+                }
                 if (skill != null && skill.id !in listOf("research_agent", "coding_assistant", "browser_automation")) {
                     onMessage("Activating skill: ${skill.name}. ${skill.description}")
                 }
